@@ -74,9 +74,10 @@ _Stop guessing your take-home pay — see it instantly with taxes.fyi._
 
 ## Indian Tax Calculations
 
-![New Tax Regime]()
+![New Tax Regime](https://github.com/user-attachments/assets/fa21ed53-86c5-4755-af7a-a864078b2ddb)
 
-![Old Tax Regime]()
+![Old Tax Regime](https://github.com/user-attachments/assets/114e4859-bf00-4cde-9086-388869718915)
+
 
 
 _The screenshot above shows sample after-tax calculations for Indian salaries using both Old and New regime tax brackets. Rest all features remains the same._
