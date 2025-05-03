@@ -1,128 +1,119 @@
 // content.js - Script that runs on levels.fyi pages
-
 // Default settings
 let taxSettings = {
-  state: 'WA',
-  filingStatus: 'Single',
-  localTax: 'sj' // Default to San Jose for California
+  country: "US",
+  state: "WA",
+  filingStatus: "Single",
+  localTax: "sj", // Default to San Jose for California
+  taxRegime: "New Regime", // Default for India
 };
-
 let columnSettings = {
-  addNewColumn: false // Default to not creating a new column when updating
+  addNewColumn: false, // Default to not creating a new column when updating
 };
-
 // Constants for retry mechanism
 const MAX_RETRIES = 5;
 const INITIAL_DELAY = 2000;
 let retryCount = 0;
-
 // Load user settings from storage
-chrome.storage.sync.get(['taxSettings', 'columnSettings'], function(result) {
+chrome.storage.sync.get(["taxSettings", "columnSettings"], function (result) {
   if (result.taxSettings) {
     taxSettings = result.taxSettings;
   }
-  
   if (result.columnSettings) {
     columnSettings = result.columnSettings;
   }
-  
   // Function to check if React is ready
   const isReactReady = () => {
-    const root = document.querySelector('#__next');
+    const root = document.querySelector("#__next");
     return root && root.children.length > 0;
   };
-
   // Function to initialize with retry
   const initializeWithRetry = () => {
     if (retryCount >= MAX_RETRIES) {
-      console.log('Taxes.fyi: Max retries reached, giving up');
+      console.log("Taxes.fyi: Max retries reached, giving up");
       return;
     }
-
     if (!isReactReady()) {
       retryCount++;
-      console.log(`Taxes.fyi: React not ready, retry ${retryCount} of ${MAX_RETRIES}`);
+      console.log(
+        `Taxes.fyi: React not ready, retry ${retryCount} of ${MAX_RETRIES}`
+      );
       setTimeout(initializeWithRetry, INITIAL_DELAY);
       return;
     }
-
-    console.log('Taxes.fyi: React ready, initializing');
+    console.log("Taxes.fyi: React ready, initializing");
     setTimeout(() => {
       try {
         addAfterTaxColumn();
         addAfterTaxDetailedColumn();
       } catch (error) {
-        console.error('Taxes.fyi: Initialization error:', error);
+        console.error("Taxes.fyi: Initialization error:", error);
       }
     }, 500);
   };
-
   // Start initialization process
   setTimeout(initializeWithRetry, INITIAL_DELAY);
 });
-
 // Tax calculation functions
 function calculateFederalTax(salary, filingStatus) {
   // 2023 Federal tax brackets (simplified)
   let brackets;
-  
-  if (filingStatus === 'Single') {
+  if (filingStatus === "Single") {
     brackets = [
-      { threshold: 0, rate: 0.10 },
+      { threshold: 0, rate: 0.1 },
       { threshold: 11925, rate: 0.12 },
       { threshold: 48475, rate: 0.22 },
       { threshold: 103350, rate: 0.24 },
       { threshold: 197300, rate: 0.32 },
       { threshold: 250525, rate: 0.35 },
-      { threshold: 626350, rate: 0.37 }
+      { threshold: 626350, rate: 0.37 },
     ];
-  } else if (filingStatus === 'Married Filing Jointly') {
+  } else if (filingStatus === "Married Filing Jointly") {
     brackets = [
-      { threshold: 0, rate: 0.10 },
+      { threshold: 0, rate: 0.1 },
       { threshold: 23850, rate: 0.12 },
       { threshold: 96950, rate: 0.22 },
       { threshold: 206700, rate: 0.24 },
       { threshold: 394600, rate: 0.32 },
       { threshold: 501050, rate: 0.35 },
-      { threshold: 751600, rate: 0.37 }
+      { threshold: 751600, rate: 0.37 },
     ];
-  } else if (filingStatus === 'Married Filing Separately') {
+  } else if (filingStatus === "Married Filing Separately") {
     brackets = [
-      { threshold: 0, rate: 0.10 },
+      { threshold: 0, rate: 0.1 },
       { threshold: 11601, rate: 0.12 },
       { threshold: 47151, rate: 0.22 },
       { threshold: 100526, rate: 0.24 },
       { threshold: 191951, rate: 0.32 },
       { threshold: 243726, rate: 0.35 },
-      { threshold: 365601, rate: 0.37 }
+      { threshold: 365601, rate: 0.37 },
     ];
-  } else { // Head of Household
+  } else {
+    // Head of Household
     brackets = [
-      { threshold: 0, rate: 0.10 },
+      { threshold: 0, rate: 0.1 },
       { threshold: 16551, rate: 0.12 },
       { threshold: 63101, rate: 0.22 },
       { threshold: 100501, rate: 0.24 },
       { threshold: 191951, rate: 0.32 },
       { threshold: 243701, rate: 0.35 },
-      { threshold: 609351, rate: 0.37 }
+      { threshold: 609351, rate: 0.37 },
     ];
   }
-  
   // Standard deduction based on filing status
   let standardDeduction;
-  if (filingStatus === 'Married Filing Jointly') {
+  if (filingStatus === "Married Filing Jointly") {
     standardDeduction = 30000;
-  } else if (filingStatus === 'Married Filing Separately') {
+  } else if (filingStatus === "Married Filing Separately") {
     standardDeduction = 15000;
-  } else if (filingStatus === 'Head of Household') {
+  } else if (filingStatus === "Head of Household") {
     standardDeduction = 22500;
-  } else { // Single
+  } else {
+    // Single
     standardDeduction = 15000;
   }
-  
   // Taxable income after standard deduction
   let taxableIncome = Math.max(0, salary - standardDeduction);
-  
   // Calculate tax
   let tax = 0;
   for (let i = 0; i < brackets.length; i++) {
@@ -134,24 +125,273 @@ function calculateFederalTax(salary, filingStatus) {
     } else {
       // For all other brackets
       if (taxableIncome > brackets[i].threshold) {
-        const bracketIncome = Math.min(taxableIncome, brackets[i+1].threshold) - brackets[i].threshold;
+        const bracketIncome =
+          Math.min(taxableIncome, brackets[i + 1].threshold) -
+          brackets[i].threshold;
         tax += bracketIncome * brackets[i].rate;
       }
     }
   }
-  
   return tax;
 }
-
+// Indian tax calculation for New Regime
+function calculateIndianNewRegimeTax(salary) {
+  // 2025-26 New Regime tax slabs
+  const brackets = [
+    { threshold: 0, rate: 0 }, // Up to 4 lakh: 0%
+    { threshold: 400000, rate: 0.05 }, // 4-8 lakh: 5%
+    { threshold: 800000, rate: 0.1 }, // 8-12 lakh: 10%
+    { threshold: 1200000, rate: 0.15 }, // 12-16 lakh: 15%
+    { threshold: 1600000, rate: 0.2 }, // 16-20 lakh: 20%
+    { threshold: 2000000, rate: 0.25 }, // 20-24 lakh: 25%
+    { threshold: 2400000, rate: 0.3 }, // Above 24 lakh: 30%
+  ];
+  // Standard Deduction for New Regime: 75,000
+  const standardDeduction = 75000;
+  // Taxable income after standard deduction
+  let taxableIncome = Math.max(0, salary - standardDeduction);
+  // Calculate tax
+  let tax = 0;
+  // Section 87A rebate (for income up to 12 lakh in new regime)
+  if (taxableIncome <= 1200000) {
+    return 0; // No tax for income up to 12 lakh in new regime (with rebate)
+  }
+  // For salaried individuals, income up to 12.75 lakh is effectively tax-free
+  // (4 lakh basic exemption + 75k standard deduction + Section 87A rebate)
+  if (salary <= 1275000) {
+    return 0;
+  }
+  for (let i = 0; i < brackets.length; i++) {
+    if (i === brackets.length - 1) {
+      // For the highest bracket
+      if (taxableIncome > brackets[i].threshold) {
+        tax += (taxableIncome - brackets[i].threshold) * brackets[i].rate;
+      }
+    } else {
+      // For all other brackets
+      if (taxableIncome > brackets[i].threshold) {
+        const bracketIncome =
+          Math.min(taxableIncome, brackets[i + 1].threshold) -
+          brackets[i].threshold;
+        tax += bracketIncome * brackets[i].rate;
+      }
+    }
+  }
+  // Section 87A rebate (maximum ₹60,000)
+  if (salary <= 1275000) {
+    tax = Math.max(0, tax - 60000);
+  }
+  // Apply 4% health and education cess
+  tax = tax * 1.04;
+  return tax;
+}
+// Indian tax calculation for Old Regime
+function calculateIndianOldRegimeTax(salary) {
+  // 2025-26 Old Regime tax slabs (unchanged)
+  const brackets = [
+    { threshold: 0, rate: 0 }, // Up to 2.5 lakh: 0%
+    { threshold: 250000, rate: 0.05 }, // 2.5-5 lakh: 5%
+    { threshold: 500000, rate: 0.2 }, // 5-10 lakh: 20%
+    { threshold: 1000000, rate: 0.3 }, // Above 10 lakh: 30%
+  ];
+  // Basic Standard Deduction for Old Regime: 50,000
+  const standardDeduction = 50000;
+  // Basic exemption of 2.5 lakhs is already included in the brackets
+  let taxableIncome = Math.max(0, salary - standardDeduction);
+  // Calculate tax
+  let tax = 0;
+  // Section 87A rebate (for income up to 5 lakh in old regime)
+  if (taxableIncome <= 500000) {
+    return 0; // No tax for income up to 5 lakh in old regime (with rebate)
+  }
+  for (let i = 0; i < brackets.length; i++) {
+    if (i === brackets.length - 1) {
+      // For the highest bracket
+      if (taxableIncome > brackets[i].threshold) {
+        tax += (taxableIncome - brackets[i].threshold) * brackets[i].rate;
+      }
+    } else {
+      // For all other brackets
+      if (taxableIncome > brackets[i].threshold) {
+        const bracketIncome =
+          Math.min(taxableIncome, brackets[i + 1].threshold) -
+          brackets[i].threshold;
+        tax += bracketIncome * brackets[i].rate;
+      }
+    }
+  }
+  // Apply 4% health and education cess
+  tax = tax * 1.04;
+  return tax;
+}
+// Function to determine if the currency of salary string is in rupees
+function isSalaryInRupees(salaryStr) {
+  return (
+    salaryStr.includes("₹") ||
+    salaryStr.includes("Rs.") ||
+    salaryStr.includes("INR")
+  );
+}
+// Function to check for currency mismatch
+function hasCurrencyMismatch(salaryStr) {
+  const isRupeeSymbol = isSalaryInRupees(salaryStr);
+  const isIndiaSelected = taxSettings.country === "India";
+  // If it has US$ prefix, consider it USD regardless of country setting
+  if (salaryStr.includes("US$")) {
+    return isIndiaSelected; // Mismatch if India is selected but US$ is used
+  }
+  return (
+    (isRupeeSymbol && !isIndiaSelected) || (!isRupeeSymbol && isIndiaSelected)
+  );
+}
+// Function to parse salary strings like "$128K" or "$1.05M" or "₹128K" or "₹1.05M" or "US$184.8K"
+function parseSalaryString(salaryStr) {
+  if (!salaryStr) return 0;
+  if (salaryStr === "$ --" || salaryStr === "₹ --" || salaryStr === "Rs. --")
+    return 0;
+  // Check for currency mismatch and show alert if needed
+  if (hasCurrencyMismatch(salaryStr)) {
+    console.warn(
+      "Taxes.fyi: Currency mismatch detected between salary and selected country"
+    );
+    // We'll handle the alert display in the UI components
+  }
+  // Remove currency symbols and any commas
+  let cleanedStr = salaryStr
+    .replace("US$", "")
+    .replace("$", "")
+    .replace("₹", "")
+    .replace("Rs.", "")
+    .replace("INR", "")
+    .replace(/,/g, "")
+    .trim();
+  // Handle K (thousands)
+  if (cleanedStr.includes("K")) {
+    return parseFloat(cleanedStr.replace("K", "")) * 1000;
+  }
+  // Handle M (millions)
+  else if (cleanedStr.includes("M")) {
+    return parseFloat(cleanedStr.replace("M", "")) * 1000000;
+  } else {
+    // Just a simple number
+    const value = parseFloat(cleanedStr);
+    return isNaN(value) ? 0 : value; // Return 0 if parsing failed
+  }
+}
+// Function to format salary back to the same format as the original
+function formatSalary(value, salaryStr = null) {
+  if (value === 0) {
+    return taxSettings.country === "India" ? "₹ --" : "$ --";
+  }
+  // Determine if we should use rupee symbol based on tax settings or original string
+  const useRupeeSymbol =
+    taxSettings.country === "India" ||
+    (salaryStr && isSalaryInRupees(salaryStr));
+  const currencySymbol = useRupeeSymbol ? "₹" : "$";
+  // Round to the nearest thousand
+  value = Math.round(value / 1000) * 1000;
+  if (value >= 1000000) {
+    // For millions, show as $X.XM or ₹X.XM with one decimal place
+    return currencySymbol + (value / 1000000).toFixed(1) + "M";
+  } else {
+    // For thousands, show as $XXXK or ₹XXXK with no decimal places
+    return currencySymbol + (value / 1000).toFixed(0) + "K";
+  }
+}
+// Function to format salary with exact dollars or rupees
+function formatExactSalary(value, salaryStr = null) {
+  if (value === 0) {
+    return taxSettings.country === "India" ? "₹ --" : "$ --";
+  }
+  // Determine if we should use rupee symbol based on tax settings or original string
+  const useRupeeSymbol =
+    taxSettings.country === "India" ||
+    (salaryStr && isSalaryInRupees(salaryStr));
+  const currencySymbol = useRupeeSymbol ? "₹" : "$";
+  return `${currencySymbol}${Math.round(value).toLocaleString()}`;
+}
+// Modify calculateTotalTax to account for India
+function calculateTotalTax(salary, location = null) {
+  // Always calculate tax based on the selected country, regardless of currency
+  if (taxSettings.country === "India") {
+    if (taxSettings.taxRegime === "New Regime") {
+      return calculateIndianNewRegimeTax(salary);
+    } else {
+      return calculateIndianOldRegimeTax(salary);
+    }
+  }
+  // If no location provided, use default settings
+  if (!location) {
+    const federalTax = calculateFederalTax(salary, taxSettings.filingStatus);
+    const stateTax = calculateStateTax(
+      salary,
+      taxSettings.state,
+      taxSettings.filingStatus
+    );
+    const localTax = calculateLocalTax(
+      salary,
+      taxSettings.state,
+      taxSettings.localTax,
+      taxSettings.filingStatus
+    );
+    const ficaTax = calculateFICATax(salary);
+    if (taxSettings.state === "NY") {
+      return federalTax + stateTax + localTax + ficaTax + 17000;
+    } else if (taxSettings.state === "CA" && taxSettings.localTax === "sf") {
+      return federalTax + stateTax + localTax + ficaTax + 2500;
+    } else {
+      return federalTax + stateTax + localTax + ficaTax;
+    }
+  }
+  // Use location-specific calculation
+  const federalTax = calculateFederalTax(salary, taxSettings.filingStatus);
+  const stateTax = calculateStateTax(
+    salary,
+    location.state,
+    taxSettings.filingStatus
+  );
+  const ficaTax = calculateFICATax(salary);
+  // Handle location-specific cases
+  if (location.state === "CA") {
+    if (location.city === "San Francisco") {
+      const sfTax = salary > 150000 ? (salary - 150000) * 0.015 : 0;
+      return federalTax + stateTax + sfTax + ficaTax + 2500;
+    } else {
+      return federalTax + stateTax + ficaTax;
+    }
+  } else if (location.state === "NY") {
+    if (location.city === "New York") {
+      const nycTax = calculateLocalTax(
+        salary,
+        "NY",
+        "nyc",
+        taxSettings.filingStatus
+      );
+      return federalTax + stateTax + nycTax + ficaTax + 17000;
+    } else {
+      return federalTax + stateTax + ficaTax + 17000;
+    }
+  }
+  // For other supported states, just use federal + state + FICA
+  const supportedStates = ["TX", "WA", "VA", "MA", "GA"];
+  if (supportedStates.includes(location.state)) {
+    return federalTax + stateTax + ficaTax;
+  }
+  // Return null for unsupported states
+  return null;
+}
+// Tax calculation functions
 function calculateStateTax(salary, state, filingStatus) {
   // State tax brackets for 2023
   let brackets = [];
   let standardDeduction = 0;
-  
   // Define brackets based on state and filing status
-  if (state === 'CA') {
+  if (state === "CA") {
     // California tax brackets
-    if (filingStatus === 'Single' || filingStatus === 'Married Filing Separately') {
+    if (
+      filingStatus === "Single" ||
+      filingStatus === "Married Filing Separately"
+    ) {
       standardDeduction = 5540;
       brackets = [
         { threshold: 0, rate: 0.01 },
@@ -162,9 +402,9 @@ function calculateStateTax(salary, state, filingStatus) {
         { threshold: 70606, rate: 0.093 },
         { threshold: 360659, rate: 0.103 },
         { threshold: 432787, rate: 0.113 },
-        { threshold: 721314, rate: 0.123 }
+        { threshold: 721314, rate: 0.123 },
       ];
-    } else if (filingStatus === 'Married Filing Jointly') {
+    } else if (filingStatus === "Married Filing Jointly") {
       standardDeduction = 11080;
       brackets = [
         { threshold: 0, rate: 0.01 },
@@ -175,9 +415,10 @@ function calculateStateTax(salary, state, filingStatus) {
         { threshold: 141212, rate: 0.093 },
         { threshold: 721318, rate: 0.103 },
         { threshold: 865574, rate: 0.113 },
-        { threshold: 1442628, rate: 0.123 }
+        { threshold: 1442628, rate: 0.123 },
       ];
-    } else { // Head of Household
+    } else {
+      // Head of Household
       standardDeduction = 11080;
       brackets = [
         { threshold: 0, rate: 0.01 },
@@ -188,12 +429,15 @@ function calculateStateTax(salary, state, filingStatus) {
         { threshold: 96107, rate: 0.093 },
         { threshold: 490493, rate: 0.103 },
         { threshold: 588593, rate: 0.113 },
-        { threshold: 980987, rate: 0.123 }
+        { threshold: 980987, rate: 0.123 },
       ];
     }
-  } else if (state === 'NY') {
+  } else if (state === "NY") {
     // New York tax brackets
-    if (filingStatus === 'Single' || filingStatus === 'Married Filing Separately') {
+    if (
+      filingStatus === "Single" ||
+      filingStatus === "Married Filing Separately"
+    ) {
       standardDeduction = 8000;
       brackets = [
         { threshold: 0, rate: 0.04 },
@@ -203,10 +447,10 @@ function calculateStateTax(salary, state, filingStatus) {
         { threshold: 80651, rate: 0.06 },
         { threshold: 215401, rate: 0.0685 },
         { threshold: 1077551, rate: 0.0965 },
-        { threshold: 5000001, rate: 0.1030 },
-        { threshold: 25000001, rate: 0.1090 }
+        { threshold: 5000001, rate: 0.103 },
+        { threshold: 25000001, rate: 0.109 },
       ];
-    } else if (filingStatus === 'Married Filing Jointly') {
+    } else if (filingStatus === "Married Filing Jointly") {
       standardDeduction = 16050;
       brackets = [
         { threshold: 0, rate: 0.04 },
@@ -216,10 +460,11 @@ function calculateStateTax(salary, state, filingStatus) {
         { threshold: 161551, rate: 0.06 },
         { threshold: 323201, rate: 0.0685 },
         { threshold: 2155351, rate: 0.0965 },
-        { threshold: 5000001, rate: 0.1030 },
-        { threshold: 25000001, rate: 0.1090 }
+        { threshold: 5000001, rate: 0.103 },
+        { threshold: 25000001, rate: 0.109 },
       ];
-    } else { // Head of Household
+    } else {
+      // Head of Household
       standardDeduction = 11200;
       brackets = [
         { threshold: 0, rate: 0.04 },
@@ -229,44 +474,41 @@ function calculateStateTax(salary, state, filingStatus) {
         { threshold: 107651, rate: 0.06 },
         { threshold: 269301, rate: 0.0685 },
         { threshold: 1616451, rate: 0.0965 },
-        { threshold: 5000001, rate: 0.1030 },
-        { threshold: 25000001, rate: 0.1090 }
+        { threshold: 5000001, rate: 0.103 },
+        { threshold: 25000001, rate: 0.109 },
       ];
     }
-  } else if (state === 'VA') {
+  } else if (state === "VA") {
     // Virginia tax brackets (same for all filing statuses)
-    standardDeduction = filingStatus === 'Married Filing Jointly' ? 17000 : 8500;
+    standardDeduction =
+      filingStatus === "Married Filing Jointly" ? 17000 : 8500;
     brackets = [
       { threshold: 0, rate: 0.02 },
       { threshold: 3000, rate: 0.03 },
       { threshold: 5000, rate: 0.05 },
-      { threshold: 17000, rate: 0.0575 }
+      { threshold: 17000, rate: 0.0575 },
     ];
-  } else if (state === 'MA') {
+  } else if (state === "MA") {
     // Massachusetts has a flat tax rate of 5% for all income
     standardDeduction = 0; // MA uses different types of deductions, simplified here
     brackets = [
       { threshold: 8000, rate: 0.05 },
-      { threshold: 1083150, rate: 0.09 }
+      { threshold: 1083150, rate: 0.09 },
     ];
-  } else if (state === 'GA') {
+  } else if (state === "GA") {
     // Georgia tax brackets (same for all filing statuses)
-    if (filingStatus === 'Married Filing Jointly') {
+    if (filingStatus === "Married Filing Jointly") {
       standardDeduction = 24000;
     } else {
       standardDeduction = 12000;
     }
-    brackets = [
-      { threshold: 0, rate: 0.0539 }
-    ];
-  } else if (state === 'TX' || state === 'WA') {
+    brackets = [{ threshold: 0, rate: 0.0539 }];
+  } else if (state === "TX" || state === "WA") {
     // Texas and Washington have no state income tax
     return 0;
   }
-  
   // Taxable income after state standard deduction
   let taxableIncome = Math.max(0, salary - standardDeduction);
-  
   // Calculate tax using brackets
   let tax = 0;
   for (let i = 0; i < brackets.length; i++) {
@@ -278,564 +520,434 @@ function calculateStateTax(salary, state, filingStatus) {
     } else {
       // For all other brackets
       if (taxableIncome > brackets[i].threshold) {
-        const bracketIncome = Math.min(taxableIncome, brackets[i+1].threshold) - brackets[i].threshold;
+        const bracketIncome =
+          Math.min(taxableIncome, brackets[i + 1].threshold) -
+          brackets[i].threshold;
         tax += bracketIncome * brackets[i].rate;
       }
     }
   }
-  
   return tax;
 }
-
 function calculateFICATax(salary) {
   // Social Security (6.2% up to wage base limit of $176,100 for 2025)
   const socialSecurityTax = Math.min(salary, 176100) * 0.062;
-  
   // Medicare (1.45% on all earnings, plus 0.9% on earnings over $200,000)
   let medicareTax = salary * 0.0145;
   if (salary > 200000) {
     medicareTax += (salary - 200000) * 0.009;
   }
-  
   return socialSecurityTax + medicareTax;
 }
-
 function calculateLocalTax(salary, state, localTax, filingStatus) {
-  if (localTax === 'none') {
+  if (localTax === "none") {
     return 0;
   }
-  
   // Calculate local tax based on locality
-  if (state === 'NY') {
-    if (localTax === 'nyc') {
+  if (state === "NY") {
+    if (localTax === "nyc") {
       // NYC has a progressive tax system
       let localTaxAmount = 0;
       let taxableIncome = salary;
-      
-      if (filingStatus === 'Single' || filingStatus === 'Married Filing Separately') {
+      if (
+        filingStatus === "Single" ||
+        filingStatus === "Married Filing Separately"
+      ) {
         if (taxableIncome <= 12000) {
           localTaxAmount = taxableIncome * 0.03078;
         } else if (taxableIncome <= 25000) {
-          localTaxAmount = 369 + ((taxableIncome - 12000) * 0.03762);
+          localTaxAmount = 369 + (taxableIncome - 12000) * 0.03762;
         } else if (taxableIncome <= 50000) {
-          localTaxAmount = 858 + ((taxableIncome - 25000) * 0.03819);
+          localTaxAmount = 858 + (taxableIncome - 25000) * 0.03819;
         } else {
-          localTaxAmount = 1813 + ((taxableIncome - 500000) * 0.03876);
+          localTaxAmount = 1813 + (taxableIncome - 500000) * 0.03876;
         }
-      } else if (filingStatus === 'Married Filing Jointly') {
+      } else if (filingStatus === "Married Filing Jointly") {
         if (taxableIncome <= 21600) {
           localTaxAmount = taxableIncome * 0.03078;
         } else if (taxableIncome <= 45000) {
-          localTaxAmount = 665 + ((taxableIncome - 21600) * 0.03762) - 17000;
+          localTaxAmount = 665 + (taxableIncome - 21600) * 0.03762 - 17000;
         } else if (taxableIncome <= 90000) {
-          localTaxAmount = 1545 + ((taxableIncome - 45000) * 0.03819) - 17000;
+          localTaxAmount = 1545 + (taxableIncome - 45000) * 0.03819 - 17000;
         } else {
-          localTaxAmount = 3264 + ((taxableIncome - 90000) * 0.03876) - 17000;
+          localTaxAmount = 3264 + (taxableIncome - 90000) * 0.03876 - 17000;
         }
-      } else { // Head of Household
+      } else {
+        // Head of Household
         if (taxableIncome <= 14400) {
           localTaxAmount = taxableIncome * 0.03078;
         } else if (taxableIncome <= 30000) {
-          localTaxAmount = 443 + ((taxableIncome - 14400) * 0.03762);
+          localTaxAmount = 443 + (taxableIncome - 14400) * 0.03762;
         } else if (taxableIncome <= 60000) {
-          localTaxAmount = 1030 + ((taxableIncome - 30000) * 0.03819);
+          localTaxAmount = 1030 + (taxableIncome - 30000) * 0.03819;
         } else {
-          localTaxAmount = 2176 + ((taxableIncome - 60000) * 0.03876);
+          localTaxAmount = 2176 + (taxableIncome - 60000) * 0.03876;
         }
       }
-      
       return localTaxAmount;
     }
-  } else if (state === 'CA') {
-    if (localTax === 'sf') {
+  } else if (state === "CA") {
+    if (localTax === "sf") {
       // San Francisco has a gross receipts tax of 1.5% on salaries over $150,000
       return salary > 150000 ? (salary - 150000) * 0.015 : 0;
     } else {
       return 0;
     }
   }
-  
   return 0;
 }
-
 // Add new helper function to parse location data
 function parseLocationFromRow(row) {
-  const locationSpan = row.querySelector('.MuiTypography-caption.css-xlmjpr');
+  const locationSpan = row.querySelector(".MuiTypography-caption.css-xlmjpr");
   if (!locationSpan) return null;
-  
   const locationText = locationSpan.textContent;
-  const city = locationText.split(',')[0].trim();
-  const state = locationText.split(',')[1]?.split('|')[0]?.trim();
-  
+  const city = locationText.split(",")[0].trim();
+  const state = locationText.split(",")[1]?.split("|")[0]?.trim();
   return { city, state };
 }
-
-// Modify calculateTotalTax to accept location parameter
-function calculateTotalTax(salary, location = null) {
-  // If no location provided, use default settings
-  if (!location) {
-    const federalTax = calculateFederalTax(salary, taxSettings.filingStatus);
-    const stateTax = calculateStateTax(salary, taxSettings.state, taxSettings.filingStatus);
-    const localTax = calculateLocalTax(salary, taxSettings.state, taxSettings.localTax, taxSettings.filingStatus);
-    const ficaTax = calculateFICATax(salary);
-    
-    if (taxSettings.state === 'NY') {
-      return federalTax + stateTax + localTax + ficaTax + 17000;
-    } else if (taxSettings.state === 'CA' && taxSettings.localTax === 'sf') {
-      return federalTax + stateTax + localTax + ficaTax + 2500;
-    } else {
-      return federalTax + stateTax + localTax + ficaTax;
-    }
-  }
-  
-  // Use location-specific calculation
-  const federalTax = calculateFederalTax(salary, taxSettings.filingStatus);
-  const stateTax = calculateStateTax(salary, location.state, taxSettings.filingStatus);
-  const ficaTax = calculateFICATax(salary);
-  
-  // Handle location-specific cases
-  if (location.state === 'CA') {
-    if (location.city === 'San Francisco') {
-      const sfTax = salary > 150000 ? (salary - 150000) * 0.015 : 0;
-      return federalTax + stateTax + sfTax + ficaTax + 2500;
-    } else {
-      return federalTax + stateTax + ficaTax;
-    }
-  } else if (location.state === 'NY') {
-    if (location.city === 'New York') {
-      const nycTax = calculateLocalTax(salary, 'NY', 'nyc', taxSettings.filingStatus);
-      return federalTax + stateTax + nycTax + ficaTax + 17000;
-    } else {
-      return federalTax + stateTax + ficaTax + 17000;
-    }
-  }
-  
-  // For other supported states, just use federal + state + FICA
-  const supportedStates = ['TX', 'WA', 'VA', 'MA', 'GA'];
-  if (supportedStates.includes(location.state)) {
-    return federalTax + stateTax + ficaTax;
-  }
-  
-  // Return null for unsupported states
-  return null;
-}
-
-// Function to parse salary strings like "$128K" or "$1.05M"
-function parseSalaryString(salaryStr) {
-  if (salaryStr === "$ --") return 0;
-  
-  // Remove $ and any commas
-  salaryStr = salaryStr.replace('$', '').replace(/,/g, '').trim();
-  
-  // Handle K (thousands)
-  if (salaryStr.includes('K')) {
-    return parseFloat(salaryStr.replace('K', '')) * 1000;
-  }
-  // Handle M (millions)
-  else if (salaryStr.includes('M')) {
-    return parseFloat(salaryStr.replace('M', '')) * 1000000;
-  }
-  else {
-    return parseFloat(salaryStr);
-  }
-}
-
-// Function to format salary back to the same format as the original
-function formatSalary(value) {
-  if (value === 0) return "$ --";
-  
-  // Round to the nearest thousand
-  value = Math.round(value / 1000) * 1000;
-  
-  if (value >= 1000000) {
-    // For millions, show as $X.XM with one decimal place
-    return "$" + (value / 1000000).toFixed(1) + "M";
-  } else {
-    // For thousands, show as $XXXK with no decimal places
-    return "$" + (value / 1000).toFixed(0) + "K";
-  }
-}
-
-// Function to format salary with exact dollars
-function formatExactSalary(value) {
-    if (value === 0) return "$ --";
-    return `$${Math.round(value).toLocaleString()}`;
-}
-
 // Function to get location from URL
 function getLocationFromURL() {
-    const path = window.location.pathname;
-    if (!path.includes('/locations/')) return null;
-    
-    const mapping = {
-        'greater-seattle-area': { state: 'WA', city: 'Seattle' },
-        'san-francisco-bay-area': { state: 'CA', city: 'San Francisco' },
-        'greater-san-diego-area': { state: 'CA', city: 'San Diego' },
-        'greater-los-angeles-area': { state: 'CA', city: 'Los Angeles' },
-        'new-york-city-area': { state: 'NY', city: 'New York' },
-        'greater-dallas-area': { state: 'TX', city: 'Dallas' },
-        'greater-austin-area': { state: 'TX', city: 'Austin' },
-        'atlanta-area': { state: 'GA', city: 'Atlanta' },
-        'northern-virginia-washington-dc': { state: 'VA', city: 'Arlington' },
-        'greater-boston-area': { state: 'MA', city: 'Boston' }
-    };
-    
-    for (const [urlPath, location] of Object.entries(mapping)) {
-        if (path.includes(urlPath)) {
-            return location;
-        }
+  const path = window.location.pathname;
+  if (!path.includes("/locations/")) return null;
+  const mapping = {
+    "greater-seattle-area": { state: "WA", city: "Seattle" },
+    "san-francisco-bay-area": { state: "CA", city: "San Francisco" },
+    "greater-san-diego-area": { state: "CA", city: "San Diego" },
+    "greater-los-angeles-area": { state: "CA", city: "Los Angeles" },
+    "new-york-city-area": { state: "NY", city: "New York" },
+    "greater-dallas-area": { state: "TX", city: "Dallas" },
+    "greater-austin-area": { state: "TX", city: "Austin" },
+    "atlanta-area": { state: "GA", city: "Atlanta" },
+    "northern-virginia-washington-dc": { state: "VA", city: "Arlington" },
+    "greater-boston-area": { state: "MA", city: "Boston" },
+  };
+  for (const [urlPath, location] of Object.entries(mapping)) {
+    if (path.includes(urlPath)) {
+      return location;
     }
-    
-    return null;
+  }
+  return null;
 }
-
+// Function to update header info text based on country
+function updateHeaderInfo(afterTaxHeader) {
+  // Find or create the info span
+  let infoSpan = afterTaxHeader.querySelector("span");
+  if (!infoSpan) {
+    infoSpan = document.createElement("span");
+    infoSpan.className =
+      "MuiTypography-root MuiTypography-caption job-family_secondary__YtLA8 css-b4wlzm";
+    afterTaxHeader.appendChild(infoSpan);
+  }
+  // Update the text based on country
+  if (taxSettings.country === "India") {
+    infoSpan.textContent = `(India, ${taxSettings.taxRegime})`;
+  } else {
+    const stateAbbr = taxSettings.state;
+    const filingStatusAbbr =
+      taxSettings.filingStatus === "Married Filing Jointly"
+        ? "Joint"
+        : taxSettings.filingStatus === "Head of Household"
+        ? "Head"
+        : "Single";
+    infoSpan.textContent = `(${stateAbbr}, ${filingStatusAbbr})`;
+  }
+}
+// Create a standard currency mismatch warning icon with proper hover styling
+function createCurrencyMismatchWarning() {
+  const warningIcon = document.createElement("span");
+  warningIcon.textContent = "⚠️";
+  warningIcon.title =
+    "Currency mismatch detected between salary and selected tax settings";
+  warningIcon.style.marginRight = "4px";
+  warningIcon.style.cursor = "help";
+  warningIcon.className = "currency-mismatch-warning";
+  return warningIcon;
+}
+// Function to add a currency mismatch warning to an element if needed
+function addCurrencyMismatchWarningIfNeeded(element, salaryText) {
+  // Clear any existing warnings first
+  const existingWarnings = element.querySelectorAll(
+    ".currency-mismatch-warning"
+  );
+  existingWarnings.forEach((warning) => warning.remove());
+  if (hasCurrencyMismatch(salaryText)) {
+    element.insertBefore(createCurrencyMismatchWarning(), element.firstChild);
+  }
+}
 // Main function to add the After Tax column
 function addAfterTaxColumn() {
-  console.log('Taxes.fyi: Looking for tables to modify...');
-  
+  console.log("Taxes.fyi: Looking for tables to modify...");
   // First, check if we already added the column
-  const existingAfterTaxHeaders = Array.from(document.querySelectorAll('th h6')).filter(h => 
-    h.textContent.trim() === 'After Tax ');
-  
+  const existingAfterTaxHeaders = Array.from(
+    document.querySelectorAll("th h6")
+  ).filter((h) => h.textContent.trim() === "After Tax ");
   if (existingAfterTaxHeaders.length > 0) {
-    console.log('Taxes.fyi: After Tax column already exists');
+    console.log("Taxes.fyi: After Tax column already exists");
     return;
   }
-  
   // Find all tables on the page
-  const tables = document.querySelectorAll('.MuiTable-root');
+  const tables = document.querySelectorAll(".MuiTable-root");
   console.log(`Taxes.fyi: Found ${tables.length} tables`);
-  
   tables.forEach((table, tableIndex) => {
     try {
       // Find the header row
-      const headerRow = table.querySelector('thead tr');
+      const headerRow = table.querySelector("thead tr");
       if (!headerRow) {
         console.log(`Taxes.fyi: No header row found in table ${tableIndex}`);
         return;
       }
-      
       // Find the Base column index first
-      const headerCells = headerRow.querySelectorAll('th');
+      const headerCells = headerRow.querySelectorAll("th");
       let baseColumnIndex = -1;
       let stockColumnIndex = -1;
       let bonusColumnIndex = -1;
       let totalColumnIndex = -1;
-      
       for (let i = 0; i < headerCells.length; i++) {
         const headerText = headerCells[i].textContent.trim();
-        if (headerText === 'Base') {
+        if (headerText === "Base") {
           baseColumnIndex = i;
-        } else if (headerText === 'Stock') {
+        } else if (headerText === "Stock") {
           stockColumnIndex = i;
-        } else if (headerText === 'Bonus') {
+        } else if (headerText === "Bonus") {
           bonusColumnIndex = i;
-        } else if (headerText.includes('Total')) {
+        } else if (headerText.includes("Total")) {
           totalColumnIndex = i;
         }
       }
-      
       if (baseColumnIndex === -1 || totalColumnIndex === -1) {
-        console.log(`Taxes.fyi: Required columns not found in table ${tableIndex}`);
+        console.log(
+          `Taxes.fyi: Required columns not found in table ${tableIndex}`
+        );
         return;
       }
-      
       // Create the After Tax header cell
       const totalHeaderCell = headerCells[totalColumnIndex];
-      const h6Element = totalHeaderCell.querySelector('h6');
+      const h6Element = totalHeaderCell.querySelector("h6");
       if (!h6Element) return;
-      
-      const newHeaderCell = document.createElement('th');
-      newHeaderCell.className = totalHeaderCell.className || '';
-      newHeaderCell.setAttribute('scope', 'col');
-      
-      const headerTitle = document.createElement('h6');
+      const newHeaderCell = document.createElement("th");
+      newHeaderCell.className = totalHeaderCell.className || "";
+      newHeaderCell.setAttribute("scope", "col");
+      const headerTitle = document.createElement("h6");
       headerTitle.className = h6Element.className;
-      headerTitle.textContent = 'After Tax ';
-      
-      const stateAbbr = taxSettings.state;
-      const filingStatusAbbr = taxSettings.filingStatus === 'Married Filing Jointly' ? 'Joint' : 
-                              taxSettings.filingStatus === 'Head of Household' ? 'Head' : 'Single';
-      
-      const infoSpan = document.createElement('span');
-      infoSpan.className = 'MuiTypography-root MuiTypography-caption job-family_secondary__YtLA8 css-b4wlzm';
-      infoSpan.textContent = `(${stateAbbr}, ${filingStatusAbbr})`;
-      
+      headerTitle.textContent = "After Tax ";
+      // Add the header title first
       newHeaderCell.appendChild(headerTitle);
-      newHeaderCell.appendChild(infoSpan);
-      
+      // Then update the header info which will add the info span
+      updateHeaderInfo(newHeaderCell);
       // Insert after Total column
       headerRow.insertBefore(newHeaderCell, headerCells[totalColumnIndex + 1]);
-      
       // Process all rows including hidden ones
       const processRow = (row) => {
-        const cells = row.querySelectorAll('td');
+        const cells = row.querySelectorAll("td");
         if (totalColumnIndex >= cells.length) return;
-        
         const totalCell = cells[totalColumnIndex];
-        const totalValueElement = totalCell.querySelector('h6');
-        
+        const totalValueElement = totalCell.querySelector("h6");
         if (!totalValueElement) return;
-        
         const totalSalaryText = totalValueElement.textContent;
         const totalSalary = parseSalaryString(totalSalaryText);
-        
         // Create new cell
-        const newCell = document.createElement('td');
+        const newCell = document.createElement("td");
         newCell.className = totalCell.className;
-        
-        const valueElement = document.createElement('h6');
+        const valueElement = document.createElement("h6");
         valueElement.className = totalValueElement.className;
-        
         // Calculate after-tax value
         let afterTaxSalary = totalSalary;
         if (totalSalary > 0) {
           const totalTax = calculateTotalTax(totalSalary);
           afterTaxSalary = totalSalary - totalTax;
         }
-        
-        valueElement.textContent = formatSalary(afterTaxSalary);
+        // First add the value text
+        valueElement.textContent = formatSalary(
+          afterTaxSalary,
+          totalSalaryText
+        );
+        // Then check for currency mismatch and add warning if needed
+        addCurrencyMismatchWarningIfNeeded(valueElement, totalSalaryText);
         newCell.appendChild(valueElement);
-        
         // Insert after Total column
         row.insertBefore(newCell, cells[totalColumnIndex + 1]);
       };
-      
       // Handle both visible and dropdown rows
       const processAllRows = () => {
-        const allRows = table.querySelectorAll('tbody tr');
+        const allRows = table.querySelectorAll("tbody tr");
         allRows.forEach(processRow);
       };
-      
       // Initial processing of rows
       processAllRows();
-      
       // Set up observer for dropdown rows
       const dropdownObserver = new MutationObserver((mutations) => {
-        mutations.forEach(mutation => {
-          if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-            const addedRows = Array.from(mutation.addedNodes)
-              .filter(node => node.nodeType === 1 && node.tagName === 'TR');
-            
+        mutations.forEach((mutation) => {
+          if (mutation.type === "childList" && mutation.addedNodes.length > 0) {
+            const addedRows = Array.from(mutation.addedNodes).filter(
+              (node) => node.nodeType === 1 && node.tagName === "TR"
+            );
             addedRows.forEach(processRow);
           }
         });
       });
-      
       // Observe tbody for changes
-      const tbody = table.querySelector('tbody');
+      const tbody = table.querySelector("tbody");
       if (tbody) {
         dropdownObserver.observe(tbody, {
           childList: true,
-          subtree: true
+          subtree: true,
         });
       }
-      
       console.log(`Taxes.fyi: Successfully modified table ${tableIndex}`);
     } catch (error) {
       console.error(`Taxes.fyi: Error modifying table ${tableIndex}:`, error);
     }
   });
 }
-
 // Modify the settings change listener to handle all table types
-chrome.storage.onChanged.addListener(function(changes, namespace) {
-  if (namespace === 'sync') {
+chrome.storage.onChanged.addListener(function (changes, namespace) {
+  if (namespace === "sync") {
     if (changes.taxSettings) {
-      console.log('Taxes.fyi: Tax settings changed, updating calculations...');
+      console.log("Taxes.fyi: Tax settings changed, updating calculations...");
       taxSettings = changes.taxSettings.newValue;
-      
       const shouldAddNewColumn = columnSettings.addNewColumn;
-      
       if (shouldAddNewColumn) {
         // Remove all existing after-tax columns
-        const tables = document.querySelectorAll('.MuiTable-root');
-        tables.forEach(table => {
-          const headerRow = table.querySelector('thead tr');
+        const tables = document.querySelectorAll(".MuiTable-root");
+        tables.forEach((table) => {
+          const headerRow = table.querySelector("thead tr");
           if (!headerRow) return;
-          
           // Skip detailed tables
-          if (headerRow.querySelector('.salary-table_sortTableHeaderText__ZYL7k')) return;
-          
+          if (
+            headerRow.querySelector(".salary-table_sortTableHeaderText__ZYL7k")
+          )
+            return;
           removeAfterTaxColumn(table);
         });
-        
         // Add new after-tax columns with updated calculations
         setTimeout(addAfterTaxColumn, 500);
       } else {
         // Update values in existing after-tax columns
-        const tables = document.querySelectorAll('.MuiTable-root');
-        tables.forEach(table => {
-          const headerRow = table.querySelector('thead tr');
+        const tables = document.querySelectorAll(".MuiTable-root");
+        tables.forEach((table) => {
+          const headerRow = table.querySelector("thead tr");
           if (!headerRow) return;
-          
           // Skip detailed tables
-          if (headerRow.querySelector('.salary-table_sortTableHeaderText__ZYL7k')) return;
-          
+          if (
+            headerRow.querySelector(".salary-table_sortTableHeaderText__ZYL7k")
+          )
+            return;
           updateNormalTableValues(table);
         });
       }
     }
-    
     if (changes.columnSettings) {
-      console.log('Taxes.fyi: Column settings changed');
+      console.log("Taxes.fyi: Column settings changed");
       columnSettings = changes.columnSettings.newValue;
     }
   }
 });
-
 // Function to remove after-tax column from a table
 function removeAfterTaxColumn(table) {
-  const headerRow = table.querySelector('thead tr');
+  const headerRow = table.querySelector("thead tr");
   if (!headerRow) return;
-  
-  const afterTaxHeaders = Array.from(headerRow.querySelectorAll('th h6'))
-    .filter(h => h.textContent.trim() === 'After Tax ');
-  
-  afterTaxHeaders.forEach(header => {
-    const column = header.closest('th');
+  const afterTaxHeaders = Array.from(
+    headerRow.querySelectorAll("th h6")
+  ).filter((h) => h.textContent.trim() === "After Tax ");
+  afterTaxHeaders.forEach((header) => {
+    const column = header.closest("th");
     const columnIndex = Array.from(headerRow.children).indexOf(column);
-    
     // Remove the header
     column.remove();
-    
     // Remove the corresponding cell in each row
-    const rows = table.querySelectorAll('tbody tr');
-    rows.forEach(row => {
+    const rows = table.querySelectorAll("tbody tr");
+    rows.forEach((row) => {
       if (columnIndex < row.children.length) {
         row.children[columnIndex].remove();
       }
     });
   });
 }
-
 // Function to update values in normal (non-detailed) table
 function updateNormalTableValues(table) {
-  const headerRow = table.querySelector('thead tr');
+  const headerRow = table.querySelector("thead tr");
   if (!headerRow) return;
-  
-  const headerCells = headerRow.querySelectorAll('th');
+  const headerCells = headerRow.querySelectorAll("th");
   let totalColumnIndex = -1;
   let afterTaxColumnIndex = -1;
-  
   for (let i = 0; i < headerCells.length; i++) {
     const headerText = headerCells[i].textContent.trim();
-    if (headerText.includes('Total')) {
+    if (headerText.includes("Total")) {
       totalColumnIndex = i;
-    } else if (headerText.includes('After Tax')) {
+    } else if (headerText.includes("After Tax")) {
       afterTaxColumnIndex = i;
     }
   }
-  
   if (totalColumnIndex === -1 || afterTaxColumnIndex === -1) return;
-  
-  // Update the state and filing status in the header
+  // Update the header info
   const afterTaxHeader = headerCells[afterTaxColumnIndex];
-  const stateAbbr = taxSettings.state;
-  const filingStatusAbbr = taxSettings.filingStatus === 'Married Filing Jointly' ? 'Joint' : 
-                         taxSettings.filingStatus === 'Head of Household' ? 'Head' : 'Single';
-  
-  // Find or create the info span
-  let infoSpan = afterTaxHeader.querySelector('span');
-  if (!infoSpan) {
-    infoSpan = document.createElement('span');
-    infoSpan.className = 'MuiTypography-root MuiTypography-caption job-family_secondary__YtLA8 css-b4wlzm';
-    afterTaxHeader.appendChild(infoSpan);
-  }
-  
-  // Update the text
-  infoSpan.textContent = `(${stateAbbr}, ${filingStatusAbbr})`;
-  
+  updateHeaderInfo(afterTaxHeader);
   // Update values in rows
-  const rows = table.querySelectorAll('tbody tr');
-  rows.forEach(row => {
-    const cells = row.querySelectorAll('td');
-    if (totalColumnIndex >= cells.length || afterTaxColumnIndex >= cells.length) return;
-    
+  const rows = table.querySelectorAll("tbody tr");
+  rows.forEach((row) => {
+    const cells = row.querySelectorAll("td");
+    if (totalColumnIndex >= cells.length || afterTaxColumnIndex >= cells.length)
+      return;
     const totalCell = cells[totalColumnIndex];
     const afterTaxCell = cells[afterTaxColumnIndex];
-    const totalValueElement = totalCell.querySelector('h6');
-    const afterTaxValueElement = afterTaxCell.querySelector('h6');
-    
+    const totalValueElement = totalCell.querySelector("h6");
+    const afterTaxValueElement = afterTaxCell.querySelector("h6");
     if (!totalValueElement || !afterTaxValueElement) return;
-    
     const totalSalaryText = totalValueElement.textContent;
     const totalSalary = parseSalaryString(totalSalaryText);
-    
     // Calculate after-tax salary using current settings
     let afterTaxSalary = totalSalary;
     if (totalSalary > 0) {
       const totalTax = calculateTotalTax(totalSalary);
       afterTaxSalary = totalSalary - totalTax;
     }
-    
     // Update the value
-    afterTaxValueElement.textContent = formatSalary(afterTaxSalary);
-    
+    afterTaxValueElement.textContent = formatSalary(
+      afterTaxSalary,
+      totalSalaryText
+    );
+    // Add currency mismatch warning if needed
+    addCurrencyMismatchWarningIfNeeded(afterTaxValueElement, totalSalaryText);
     // Match styling with total column
-    const isTotalBold = totalValueElement.className.includes('css-xj4mea');
-    afterTaxValueElement.className = isTotalBold ? 
-      'MuiTypography-root MuiTypography-subtitle1 css-xj4mea' : 
-      'MuiTypography-root MuiTypography-subtitle1 css-6xe2a5';
+    const isTotalBold = totalValueElement.className.includes("css-xj4mea");
+    afterTaxValueElement.className = isTotalBold
+      ? "MuiTypography-root MuiTypography-subtitle1 css-xj4mea"
+      : "MuiTypography-root MuiTypography-subtitle1 css-6xe2a5";
   });
 }
-
-// Create a helper function to update values in a single table
+// Function to update values in a single table
 function updateTableValues(table) {
-  const headerRow = table.querySelector('thead tr');
+  const headerRow = table.querySelector("thead tr");
   if (!headerRow) return;
-  
-  const headerCells = headerRow.querySelectorAll('th');
+  const headerCells = headerRow.querySelectorAll("th");
   let totalColumnIndex = -1;
   let afterTaxColumnIndex = -1;
-  
   for (let i = 0; i < headerCells.length; i++) {
     const headerText = headerCells[i].textContent.trim();
-    if (headerText.includes('Total')) {
+    if (headerText.includes("Total")) {
       totalColumnIndex = i;
-    } else if (headerText.includes('After Tax')) {
+    } else if (headerText.includes("After Tax")) {
       afterTaxColumnIndex = i;
     }
   }
-  
   if (totalColumnIndex === -1 || afterTaxColumnIndex === -1) return;
-  
-  // Update the state and filing status in the header
+  // Update the header info
   const afterTaxHeader = headerCells[afterTaxColumnIndex];
-  const stateAbbr = taxSettings.state;
-  const filingStatusAbbr = taxSettings.filingStatus === 'Married Filing Jointly' ? 'Joint' : 
-                         taxSettings.filingStatus === 'Head of Household' ? 'Head' : 'Single';
-  
-  // Find or create the info span
-  let infoSpan = afterTaxHeader.querySelector('span');
-  if (!infoSpan) {
-    infoSpan = document.createElement('span');
-    infoSpan.className = 'MuiTypography-root MuiTypography-caption job-family_secondary__YtLA8 css-b4wlzm';
-    afterTaxHeader.appendChild(infoSpan);
-  }
-  
-  // Update the text
-  infoSpan.textContent = `(${stateAbbr}, ${filingStatusAbbr})`;
-  
+  updateHeaderInfo(afterTaxHeader);
   // Update values in rows
-  const rows = table.querySelectorAll('tbody tr');
-  rows.forEach(row => {
-    const cells = row.querySelectorAll('td');
-    
-    if (totalColumnIndex >= cells.length || afterTaxColumnIndex >= cells.length) return;
-    
+  const rows = table.querySelectorAll("tbody tr");
+  rows.forEach((row) => {
+    const cells = row.querySelectorAll("td");
+    if (totalColumnIndex >= cells.length || afterTaxColumnIndex >= cells.length)
+      return;
     const totalCell = cells[totalColumnIndex];
     const afterTaxCell = cells[afterTaxColumnIndex];
-    const totalValueElement = totalCell.querySelector('h6');
-    const afterTaxValueElement = afterTaxCell.querySelector('h6');
-    
+    const totalValueElement = totalCell.querySelector("h6");
+    const afterTaxValueElement = afterTaxCell.querySelector("h6");
     if (!totalValueElement || !afterTaxValueElement) return;
-    
     const totalSalaryText = totalValueElement.textContent;
     const totalSalary = parseSalaryString(totalSalaryText);
-    
     const location = parseLocationFromRow(row);
-    
     // Calculate after-tax salary only if we have a supported location
     let afterTaxSalary = totalSalary;
     if (totalSalary > 0 && location) {
@@ -848,221 +960,93 @@ function updateTableValues(table) {
         return;
       }
     }
-    
     // Check if the Total value is bold (has the css-xj4mea class)
-    const isTotalBold = totalValueElement.className.includes('css-xj4mea');
-    
+    const isTotalBold = totalValueElement.className.includes("css-xj4mea");
     // Update the after-tax value and ensure proper styling
-    afterTaxValueElement.textContent = formatSalary(afterTaxSalary);
-    
+    afterTaxValueElement.textContent = formatSalary(
+      afterTaxSalary,
+      totalSalaryText
+    );
+    // Add currency mismatch warning if needed
+    addCurrencyMismatchWarningIfNeeded(afterTaxValueElement, totalSalaryText);
     // Make sure the styling matches the Total column (bold if Total is bold)
-    if (isTotalBold && !afterTaxValueElement.className.includes('css-xj4mea')) {
-      afterTaxValueElement.className = 'MuiTypography-root MuiTypography-subtitle1 css-xj4mea';
-    } else if (!isTotalBold && afterTaxValueElement.className.includes('css-xj4mea')) {
-      afterTaxValueElement.className = 'MuiTypography-root MuiTypography-subtitle1 css-6xe2a5';
+    if (isTotalBold && !afterTaxValueElement.className.includes("css-xj4mea")) {
+      afterTaxValueElement.className =
+        "MuiTypography-root MuiTypography-subtitle1 css-xj4mea";
+    } else if (
+      !isTotalBold &&
+      afterTaxValueElement.className.includes("css-xj4mea")
+    ) {
+      afterTaxValueElement.className =
+        "MuiTypography-root MuiTypography-subtitle1 css-6xe2a5";
     }
   });
 }
-
-// Set up a MutationObserver to detect when new tables are added or content changes
-const observer = new MutationObserver(function(mutations) {
-  clearTimeout(window._taxesFyiTimeout);
-  window._taxesFyiTimeout = setTimeout(() => {
-    // Check if React is ready before processing
-    if (!document.querySelector('#__next')) return;
-
-    let shouldUpdate = false;
-    mutations.forEach(mutation => {
-      if (mutation.type === 'childList') {
-        const hasRelevantChanges = Array.from(mutation.addedNodes).some(node => {
-          if (node.nodeType !== 1) return false;
-          return node.querySelector?.('.MuiTable-root, .percentiles_medianAmount__XO6Ww') ||
-                 node.classList?.contains('MuiTable-root') ||
-                 node.classList?.contains('percentiles_medianAmount__XO6Ww');
-        });
-        if (hasRelevantChanges) shouldUpdate = true;
-      }
-    });
-
-    if (shouldUpdate) {
-      console.log('Taxes.fyi: Content changes detected, updating...');
-      setTimeout(() => {
-        try {
-          if (document.querySelector('.MuiTable-root')) {
-            addAfterTaxColumn();
-            addAfterTaxDetailedColumn();
-          }
-          if (document.querySelector('.percentiles_medianAmount__XO6Ww')) {
-            duplicateMedianElements();
-            duplicatePercentileElements();
-            duplicate75thPercentileElements();
-            duplicate90thPercentileElements();
-          }
-        } catch (error) {
-          console.error('Taxes.fyi: Update error:', error);
-        }
-      }, 1000);
-    }
-  }, 250);
-});
-
-// Function to fix styling on after-tax values
-function fixAfterTaxStyles() {
-  const tables = document.querySelectorAll('.MuiTable-root');
-  
-  tables.forEach(table => {
-    // Find the header row
-    const headerRow = table.querySelector('thead tr');
-    if (!headerRow) return;
-    
-    // Find the Total column and After Tax column
-    const headerCells = headerRow.querySelectorAll('th');
-    let totalColumnIndex = -1;
-    let afterTaxColumnIndex = -1;
-    
-    for (let i = 0; i < headerCells.length; i++) {
-      const headerText = headerCells[i].textContent.trim();
-      if (headerText.includes('Total')) {
-        totalColumnIndex = i;
-      } else if (headerText.includes('After Tax')) {
-        afterTaxColumnIndex = i;
-      }
-    }
-    
-    if (totalColumnIndex === -1 || afterTaxColumnIndex === -1) return;
-    
-    // Update the styling for each row
-    const rows = table.querySelectorAll('tbody tr');
-    
-    rows.forEach(row => {
-      const cells = row.querySelectorAll('td');
-      
-      if (totalColumnIndex >= cells.length || afterTaxColumnIndex >= cells.length) return;
-      
-      const totalCell = cells[totalColumnIndex];
-      const afterTaxCell = cells[afterTaxColumnIndex];
-      const totalValueElement = totalCell.querySelector('h6');
-      const afterTaxValueElement = afterTaxCell.querySelector('h6');
-      
-      if (!totalValueElement || !afterTaxValueElement) return;
-      
-      // Check if the Total value is bold (has the css-xj4mea class)
-      const isTotalBold = totalValueElement.className.includes('css-xj4mea');
-      const isAfterTaxBold = afterTaxValueElement.className.includes('css-xj4mea');
-      
-      // Make sure the styling matches the Total column (bold if Total is bold)
-      if (isTotalBold && !isAfterTaxBold) {
-        afterTaxValueElement.className = 'MuiTypography-root MuiTypography-subtitle1 css-xj4mea';
-      } else if (!isTotalBold && isAfterTaxBold) {
-        afterTaxValueElement.className = 'MuiTypography-root MuiTypography-subtitle1 css-6xe2a5';
-      }
-    });
-  });
-}
-
-// Start observing the document for both content and attribute changes
-observer.observe(document.body, { 
-  childList: true, 
-  subtree: true,
-  attributes: true,
-  attributeFilter: ['class']
-});
-
-// Initial run
-console.log('Taxes.fyi: Extension loaded');
-
-// Also set up click event listeners for any buttons that might expand salary information
-document.addEventListener('click', function(event) {
-  // Check if the click was on a button or element that might trigger salary changes
-  const target = event.target;
-  
-  // If it's a button or something that might expand/collapse salary info
-  if (target.tagName === 'BUTTON' || 
-      target.closest('button') || 
-      target.getAttribute('role') === 'button' ||
-      target.classList.contains('monthly-toggle-text_salaryTypeLabelButton__joQJj')) {
-    
-    console.log('Taxes.fyi: Potential salary toggle button clicked');
-    
-    // Wait a bit for the UI to update, then refresh all values and fix styles
-    setTimeout(function() {
-      updateAllAfterTaxValues(); // Use the new function to update all values
-      fixAfterTaxStyles();
-    }, 500);
-  }
-});
-
 // Function to update all after-tax values in a table
 function updateAllAfterTaxValues() {
-  console.log('Taxes.fyi: Refreshing all after-tax values...');
-  const tables = document.querySelectorAll('.MuiTable-root');
-  
-  tables.forEach(table => {
+  console.log("Taxes.fyi: Refreshing all after-tax values...");
+  const tables = document.querySelectorAll(".MuiTable-root");
+  tables.forEach((table) => {
     // Find the header row
-    const headerRow = table.querySelector('thead tr');
+    const headerRow = table.querySelector("thead tr");
     if (!headerRow) return;
-    
     // Find the Total column and After Tax column
-    const headerCells = headerRow.querySelectorAll('th');
+    const headerCells = headerRow.querySelectorAll("th");
     let totalColumnIndex = -1;
     let afterTaxColumnIndex = -1;
-    
     for (let i = 0; i < headerCells.length; i++) {
       const headerText = headerCells[i].textContent.trim();
-      if (headerText.includes('Total')) {
+      if (headerText.includes("Total")) {
         totalColumnIndex = i;
-      } else if (headerText.includes('After Tax')) {
+      } else if (headerText.includes("After Tax")) {
         afterTaxColumnIndex = i;
       }
     }
-    
     if (totalColumnIndex === -1 || afterTaxColumnIndex === -1) return;
-    
+    // Update the header info if it exists
+    const afterTaxHeader = headerCells[afterTaxColumnIndex];
+    updateHeaderInfo(afterTaxHeader);
     // Process all rows
-    const rows = table.querySelectorAll('tbody tr');
-    
-    rows.forEach(row => {
-      const cells = row.querySelectorAll('td');
-      
+    const rows = table.querySelectorAll("tbody tr");
+    rows.forEach((row) => {
+      const cells = row.querySelectorAll("td");
       if (totalColumnIndex >= cells.length) return;
-      
       const totalCell = cells[totalColumnIndex];
-      const totalValueElement = totalCell.querySelector('h6');
-      
+      const totalValueElement = totalCell.querySelector("h6");
       if (!totalValueElement) return;
-      
       // Get the total salary value
       const totalSalaryText = totalValueElement.textContent;
       const totalSalary = parseSalaryString(totalSalaryText);
-      
       // Calculate after-tax salary using popup settings
       let afterTaxSalary = totalSalary;
       if (totalSalary > 0) {
         const totalTax = calculateTotalTax(totalSalary); // Use default settings from popup
         afterTaxSalary = totalSalary - totalTax;
       }
-      
       // Check if the Total value is bold
-      const isTotalBold = totalValueElement.className.includes('css-xj4mea');
-      
+      const isTotalBold = totalValueElement.className.includes("css-xj4mea");
       // Check if this row has an after-tax cell already
       let afterTaxCell;
       if (afterTaxColumnIndex < cells.length) {
         afterTaxCell = cells[afterTaxColumnIndex];
       }
-      
       if (!afterTaxCell) {
         // Create a new cell if it doesn't exist
-        afterTaxCell = document.createElement('td');
+        afterTaxCell = document.createElement("td");
         afterTaxCell.className = totalCell.className;
-        
         // Create the value element
-        const valueElement = document.createElement('h6');
-        valueElement.className = isTotalBold ? 'MuiTypography-root MuiTypography-subtitle1 css-xj4mea' : totalValueElement.className;
-        valueElement.textContent = formatSalary(afterTaxSalary);
-        
+        const valueElement = document.createElement("h6");
+        valueElement.className = isTotalBold
+          ? "MuiTypography-root MuiTypography-subtitle1 css-xj4mea"
+          : totalValueElement.className;
+        // Add the formatted value
+        valueElement.textContent = formatSalary(
+          afterTaxSalary,
+          totalSalaryText
+        );
+        // Add currency mismatch warning if needed
+        addCurrencyMismatchWarningIfNeeded(valueElement, totalSalaryText);
         afterTaxCell.appendChild(valueElement);
-        
         // Insert at the right position
         if (afterTaxColumnIndex < cells.length) {
           row.insertBefore(afterTaxCell, cells[afterTaxColumnIndex]);
@@ -1071,234 +1055,278 @@ function updateAllAfterTaxValues() {
         }
       } else {
         // Update existing cell
-        let valueElement = afterTaxCell.querySelector('h6');
-        
+        let valueElement = afterTaxCell.querySelector("h6");
         if (!valueElement) {
           // Create value element if it doesn't exist
-          valueElement = document.createElement('h6');
-          valueElement.className = isTotalBold ? 'MuiTypography-root MuiTypography-subtitle1 css-xj4mea' : totalValueElement.className;
+          valueElement = document.createElement("h6");
+          valueElement.className = isTotalBold
+            ? "MuiTypography-root MuiTypography-subtitle1 css-xj4mea"
+            : totalValueElement.className;
           afterTaxCell.appendChild(valueElement);
         }
-        
-        // Always update the value
-        valueElement.textContent = formatSalary(afterTaxSalary);
-        
+        // Update the value
+        valueElement.textContent = formatSalary(
+          afterTaxSalary,
+          totalSalaryText
+        );
+        // Add currency mismatch warning if needed
+        addCurrencyMismatchWarningIfNeeded(valueElement, totalSalaryText);
         // Ensure proper styling
-        if (isTotalBold && !valueElement.className.includes('css-xj4mea')) {
-          valueElement.className = 'MuiTypography-root MuiTypography-subtitle1 css-xj4mea';
-        } else if (!isTotalBold && valueElement.className.includes('css-xj4mea')) {
-          valueElement.className = 'MuiTypography-root MuiTypography-subtitle1 css-6xe2a5';
+        if (isTotalBold && !valueElement.className.includes("css-xj4mea")) {
+          valueElement.className =
+            "MuiTypography-root MuiTypography-subtitle1 css-xj4mea";
+        } else if (
+          !isTotalBold &&
+          valueElement.className.includes("css-xj4mea")
+        ) {
+          valueElement.className =
+            "MuiTypography-root MuiTypography-subtitle1 css-6xe2a5";
         }
       }
     });
   });
 }
-
 function duplicateCompensationElements() {
-    // First check if we already added the after-tax elements
-    const existingAfterTaxLabel = Array.from(document.querySelectorAll('dt.level_breakdownLabel__SYlC4'))
-        .find(el => el.textContent.startsWith("After Tax"));
-    if (existingAfterTaxLabel) {
-        return; // Exit if we already added the elements
-    }
-
-    const labelElement = document.querySelector('dt.level_breakdownLabel__SYlC4');
-    const valueElement = document.querySelector('dd.level_totalComp__dFDpB');
-
-    if (labelElement && valueElement) {
-        // Create clones
-        const labelClone = labelElement.cloneNode(true);
-        const valueClone = valueElement.cloneNode(true);
-
-        // Function to update label text with current settings
-        const updateLabelText = () => {
-            const stateAbbr = taxSettings.state;
-            const filingStatusAbbr = taxSettings.filingStatus === 'Married Filing Jointly' ? 'Joint' : 
-                                   taxSettings.filingStatus === 'Head of Household' ? 'Head' : 'Single';
-            labelClone.textContent = `After Tax (${stateAbbr}, ${filingStatusAbbr})`;
-        };
-
-        // Set initial label text
+  // First check if we already added the after-tax elements
+  const existingAfterTaxLabel = Array.from(
+    document.querySelectorAll("dt.level_breakdownLabel__SYlC4")
+  ).find((el) => el.textContent.startsWith("After Tax"));
+  if (existingAfterTaxLabel) {
+    return; // Exit if we already added the elements
+  }
+  const labelElement = document.querySelector("dt.level_breakdownLabel__SYlC4");
+  const valueElement = document.querySelector("dd.level_totalComp__dFDpB");
+  if (labelElement && valueElement) {
+    // Create clones
+    const labelClone = labelElement.cloneNode(true);
+    const valueClone = valueElement.cloneNode(true);
+    // Function to update label text with current settings
+    const updateLabelText = () => {
+      if (taxSettings.country === "India") {
+        labelClone.textContent = `After Tax (India, ${taxSettings.taxRegime})`;
+      } else {
+        const stateAbbr = taxSettings.state;
+        const filingStatusAbbr =
+          taxSettings.filingStatus === "Married Filing Jointly"
+            ? "Joint"
+            : taxSettings.filingStatus === "Head of Household"
+            ? "Head"
+            : "Single";
+        labelClone.textContent = `After Tax (${stateAbbr}, ${filingStatusAbbr})`;
+      }
+    };
+    // Set initial label text
+    updateLabelText();
+    // Function to update after-tax value
+    const updateAfterTaxValue = () => {
+      const originalSalaryText = valueElement.textContent;
+      const totalSalary = parseSalaryString(originalSalaryText);
+      let afterTaxSalary = totalSalary;
+      if (totalSalary > 0) {
+        const totalTax = calculateTotalTax(totalSalary);
+        afterTaxSalary = totalSalary - totalTax;
+      }
+      valueClone.textContent = formatExactSalary(
+        afterTaxSalary,
+        originalSalaryText
+      );
+      // Add currency mismatch warning if needed
+      addCurrencyMismatchWarningIfNeeded(valueClone, originalSalaryText);
+    };
+    // Insert clones into DOM
+    valueElement.parentNode.insertBefore(labelClone, valueElement.nextSibling);
+    labelClone.parentNode.insertBefore(valueClone, labelClone.nextSibling);
+    // Initial update once settings are loaded
+    chrome.storage.sync.get(["taxSettings"], function (result) {
+      if (result.taxSettings) {
+        taxSettings = result.taxSettings;
+        updateAfterTaxValue();
+      }
+    });
+    // Set up observer for value changes
+    const valueObserver = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (
+          mutation.type === "characterData" ||
+          mutation.type === "childList"
+        ) {
+          updateAfterTaxValue();
+        }
+      });
+    });
+    valueObserver.observe(valueElement, {
+      characterData: true,
+      childList: true,
+      subtree: true,
+    });
+    // Listen for settings changes
+    chrome.storage.onChanged.addListener((changes, namespace) => {
+      if (namespace === "sync" && changes.taxSettings) {
+        taxSettings = changes.taxSettings.newValue;
         updateLabelText();
-
-        // Function to update after-tax value
-        const updateAfterTaxValue = () => {
-            const totalSalary = parseSalaryString(valueElement.textContent);
-            let afterTaxSalary = totalSalary;
-            if (totalSalary > 0) {
-                const totalTax = calculateTotalTax(totalSalary);
-                afterTaxSalary = totalSalary - totalTax;
-            }
-            valueClone.textContent = formatExactSalary(afterTaxSalary);
-        };
-
-        // Insert clones into DOM
-        valueElement.parentNode.insertBefore(labelClone, valueElement.nextSibling);
-        labelClone.parentNode.insertBefore(valueClone, labelClone.nextSibling);
-
-        // Initial update once settings are loaded
-        chrome.storage.sync.get(['taxSettings'], function(result) {
-            if (result.taxSettings) {
-                taxSettings = result.taxSettings;
-                updateAfterTaxValue();
-            }
-        });
-
-        // Set up observer for value changes
-        const valueObserver = new MutationObserver((mutations) => {
-            mutations.forEach((mutation) => {
-                if (mutation.type === 'characterData' || mutation.type === 'childList') {
-                    updateAfterTaxValue();
-                }
-            });
-        });
-
-        valueObserver.observe(valueElement, {
-            characterData: true,
-            childList: true,
-            subtree: true
-        });
-
-        // Listen for settings changes
-        chrome.storage.onChanged.addListener((changes, namespace) => {
-            if (namespace === 'sync' && changes.taxSettings) {
-                taxSettings = changes.taxSettings.newValue;
-                updateLabelText();
-                updateAfterTaxValue();
-            }
-        });
-    }
+        updateAfterTaxValue();
+      }
+    });
+  }
 }
-
 // Set up a separate observer for compensation elements
 const compensationObserver = new MutationObserver((mutations) => {
-    for (const mutation of mutations) {
-        if (mutation.type === 'childList') {
-            const labelElement = document.querySelector('dt.level_breakdownLabel__SYlC4');
-            const valueElement = document.querySelector('dd.level_totalComp__dFDpB');
-            
-            if (labelElement && valueElement) {
-                // Wait for settings to be loaded before adding elements
-                chrome.storage.sync.get(['taxSettings'], function(result) {
-                    if (result.taxSettings) {
-                        taxSettings = result.taxSettings;
-                        duplicateCompensationElements();
-                    }
-                });
-            }
-        }
+  for (const mutation of mutations) {
+    if (mutation.type === "childList") {
+      const labelElement = document.querySelector(
+        "dt.level_breakdownLabel__SYlC4"
+      );
+      const valueElement = document.querySelector("dd.level_totalComp__dFDpB");
+      if (labelElement && valueElement) {
+        // Wait for settings to be loaded before adding elements
+        chrome.storage.sync.get(["taxSettings"], function (result) {
+          if (result.taxSettings) {
+            taxSettings = result.taxSettings;
+            duplicateCompensationElements();
+          }
+        });
+      }
     }
+  }
 });
-
 // Start observing the document for compensation elements
 compensationObserver.observe(document.body, {
-    childList: true,
-    subtree: true
+  childList: true,
+  subtree: true,
 });
-
 // Function to add After Tax column for detailed compensation tables
 function addAfterTaxDetailedColumn() {
-  console.log('Taxes.fyi: Looking for detailed compensation tables...');
-  
+  console.log("Taxes.fyi: Looking for detailed compensation tables...");
   // Find tables with detailed compensation headers
-  const detailedHeaders = document.querySelectorAll('th .salary-table_sortTableHeaderText__ZYL7k');
-  
+  const detailedHeaders = document.querySelectorAll(
+    "th .salary-table_sortTableHeaderText__ZYL7k"
+  );
   detailedHeaders.forEach((header, index) => {
-    if (header.textContent.includes('Total Compensation')) {
-      const headerCell = header.closest('th');
-      const table = headerCell.closest('table');
-      const headerRow = headerCell.closest('tr');
-      
+    if (header.textContent.includes("Total Compensation")) {
+      const headerCell = header.closest("th");
+      const table = headerCell.closest("table");
+      const headerRow = headerCell.closest("tr");
       // Check if we already added the column
-      const existingDetailedHeader = Array.from(headerRow.querySelectorAll('th'))
-        .find(th => th.querySelector('.salary-table_sortTableHeaderText__ZYL7k')?.textContent.includes('After Tax'));
-      
+      const existingDetailedHeader = Array.from(
+        headerRow.querySelectorAll("th")
+      ).find((th) =>
+        th
+          .querySelector(".salary-table_sortTableHeaderText__ZYL7k")
+          ?.textContent.includes("After Tax")
+      );
       if (existingDetailedHeader) return;
-      
       // Create new header cell with same styling as original
-      const newHeaderCell = document.createElement('th');
+      const newHeaderCell = document.createElement("th");
       newHeaderCell.className = headerCell.className;
-      newHeaderCell.setAttribute('scope', 'col');
-      
+      newHeaderCell.setAttribute("scope", "col");
       // Create header content with simpler text
-      const sortLabel = document.createElement('span');
-      sortLabel.className = 'MuiButtonBase-root MuiTableSortLabel-root css-1x860jj';
-      sortLabel.setAttribute('tabindex', '0');
-      sortLabel.setAttribute('role', 'button');
-      
-      const headerDiv = document.createElement('div');
-      headerDiv.className = 'salary-table_sortTableHeader__9OJDE';
-      
-      const headerText = document.createElement('p');
-      headerText.className = 'MuiTypography-root MuiTypography-body2 salary-table_sortTableHeaderText__ZYL7k css-2o2hpw';
-      headerText.textContent = 'After Tax';
-      
-      const currencyButton = document.createElement('button');
-      currencyButton.type = 'button';
-      currencyButton.className = 'salary-table_currencyLabel__4PkwP';
-      currencyButton.textContent = '';
-      
+      const sortLabel = document.createElement("span");
+      sortLabel.className =
+        "MuiButtonBase-root MuiTableSortLabel-root css-1x860jj";
+      sortLabel.setAttribute("tabindex", "0");
+      sortLabel.setAttribute("role", "button");
+      const headerDiv = document.createElement("div");
+      headerDiv.className = "salary-table_sortTableHeader__9OJDE";
+      const headerText = document.createElement("p");
+      headerText.className =
+        "MuiTypography-root MuiTypography-body2 salary-table_sortTableHeaderText__ZYL7k css-2o2hpw";
+      headerText.textContent = "After Tax";
+      const currencyButton = document.createElement("button");
+      currencyButton.type = "button";
+      currencyButton.className = "salary-table_currencyLabel__4PkwP";
+      currencyButton.textContent = "";
       headerText.appendChild(currencyButton);
       headerDiv.appendChild(headerText);
-      
-      const subText = document.createElement('span');
-      subText.className = 'MuiTypography-root MuiTypography-caption css-12nofzu';
-      subText.textContent = '(By location)';
+      // Update subtext based on country selection
+      let subTextContent = "";
+      if (taxSettings.country === "India") {
+        subTextContent = `(India, ${taxSettings.taxRegime})`;
+      } else {
+        subTextContent = "(By location)";
+      }
+      const subText = document.createElement("span");
+      subText.className =
+        "MuiTypography-root MuiTypography-caption css-12nofzu";
+      subText.textContent = subTextContent;
       headerDiv.appendChild(subText);
-      
       sortLabel.appendChild(headerDiv);
       newHeaderCell.appendChild(sortLabel);
-      
       // Insert the new header cell
       headerCell.parentNode.insertBefore(newHeaderCell, headerCell.nextSibling);
-      
       // Add after-tax values to each row
-      const rows = table.querySelectorAll('tbody tr');
+      const rows = table.querySelectorAll("tbody tr");
       const headerIndex = Array.from(headerRow.children).indexOf(headerCell);
-      
-      rows.forEach(row => {
-        const cells = row.querySelectorAll('td');
+      rows.forEach((row) => {
+        const cells = row.querySelectorAll("td");
         if (headerIndex >= cells.length) return;
-        
         const totalCell = cells[headerIndex];
-        const totalValueElement = totalCell.querySelector('.MuiTypography-body1');
-        
+        const totalValueElement = totalCell.querySelector(
+          ".MuiTypography-body1"
+        );
         if (!totalValueElement) return;
-        
-        const totalValue = parseSalaryString(totalValueElement.textContent);
+        const totalSalaryText = totalValueElement.textContent;
+        const totalValue = parseSalaryString(totalSalaryText);
         const location = parseLocationFromRow(row);
-        
         // Create new cell with same structure
-        const newCell = document.createElement('td');
-        newCell.className = 'MuiTableCell-root MuiTableCell-body MuiTableCell-alignRight MuiTableCell-sizeMedium salary-row_totalCompCell__553Rk css-1b6bj08';
-        
-        const outerBox = document.createElement('div');
-        outerBox.className = 'MuiBox-root css-77dmha';
-        
-        const emptyDiv = document.createElement('div');
-        const contentBox = document.createElement('div');
-        contentBox.className = 'MuiBox-root css-0';
-        
-        const mainValue = document.createElement('p');
-        mainValue.className = 'MuiTypography-root MuiTypography-body1 css-4g68tt';
-        
-        // Calculate after-tax value or show $--- for unsupported locations
-        if (totalValue > 0 && location) {
-          const totalTax = calculateTotalTax(totalValue, location);
-          if (totalTax !== null) {
-            mainValue.textContent = formatExactSalary(totalValue - totalTax);
+        const newCell = document.createElement("td");
+        newCell.className =
+          "MuiTableCell-root MuiTableCell-body MuiTableCell-alignRight MuiTableCell-sizeMedium salary-row_totalCompCell__553Rk css-1b6bj08";
+        const outerBox = document.createElement("div");
+        outerBox.className = "MuiBox-root css-77dmha";
+        const emptyDiv = document.createElement("div");
+        const contentBox = document.createElement("div");
+        contentBox.className = "MuiBox-root css-0";
+        const mainValue = document.createElement("p");
+        mainValue.className =
+          "MuiTypography-root MuiTypography-body1 css-4g68tt";
+        // Calculate after-tax value based on country settings or location
+        if (totalValue > 0) {
+          let afterTaxValue;
+          // For Indian tax calculations, ignore location
+          if (taxSettings.country === "India") {
+            const totalTax = calculateTotalTax(totalValue);
+            afterTaxValue = totalValue - totalTax;
+            mainValue.textContent = formatExactSalary(
+              afterTaxValue,
+              totalSalaryText
+            );
+            // Add currency mismatch warning if needed
+            addCurrencyMismatchWarningIfNeeded(mainValue, totalSalaryText);
+          }
+          // For US tax calculations, use location when available
+          else if (location) {
+            const totalTax = calculateTotalTax(totalValue, location);
+            if (totalTax !== null) {
+              afterTaxValue = totalValue - totalTax;
+              mainValue.textContent = formatExactSalary(
+                afterTaxValue,
+                totalSalaryText
+              );
+              // Add currency mismatch warning if needed
+              addCurrencyMismatchWarningIfNeeded(mainValue, totalSalaryText);
+            } else {
+              mainValue.textContent =
+                taxSettings.country === "India" ? "₹---" : "$---";
+            }
           } else {
-            mainValue.textContent = '$---';
+            // Use default tax settings when no location
+            const totalTax = calculateTotalTax(totalValue);
+            afterTaxValue = totalValue - totalTax;
+            mainValue.textContent = formatExactSalary(
+              afterTaxValue,
+              totalSalaryText
+            );
+            // Add currency mismatch warning if needed
+            addCurrencyMismatchWarningIfNeeded(mainValue, totalSalaryText);
           }
         } else {
-          mainValue.textContent = '$---';
+          mainValue.textContent =
+            taxSettings.country === "India" ? "₹---" : "$---";
         }
-        
         contentBox.appendChild(mainValue);
         outerBox.appendChild(emptyDiv);
         outerBox.appendChild(contentBox);
         newCell.appendChild(outerBox);
-        
         // Insert the new cell
         if (headerIndex + 1 < cells.length) {
           row.insertBefore(newCell, cells[headerIndex + 1]);
@@ -1309,386 +1337,429 @@ function addAfterTaxDetailedColumn() {
     }
   });
 }
-
 // Add observer for detailed compensation tables
 const detailedTableObserver = new MutationObserver((mutations) => {
-  mutations.forEach(mutation => {
-    if (mutation.type === 'childList') {
+  mutations.forEach((mutation) => {
+    if (mutation.type === "childList") {
       const addedNodes = Array.from(mutation.addedNodes);
-      const hasDetailedTable = addedNodes.some(node => 
-        node.nodeType === 1 && node.querySelector?.('.salary-table_sortTableHeaderText__ZYL7k')
+      const hasDetailedTable = addedNodes.some(
+        (node) =>
+          node.nodeType === 1 &&
+          node.querySelector?.(".salary-table_sortTableHeaderText__ZYL7k")
       );
-      
       if (hasDetailedTable) {
         setTimeout(addAfterTaxDetailedColumn, 500);
       }
     }
   });
 });
-
 // Start observing for detailed tables
 detailedTableObserver.observe(document.body, {
   childList: true,
-  subtree: true
+  subtree: true,
 });
-
 // Function to duplicate median elements and show after-tax values
 function duplicateMedianElements() {
-    // Check if already added
-    const existingAfterTaxMedian = Array.from(document.querySelectorAll('.percentiles_percentileLabel__8qVrS'))
-        .find(el => el.textContent.includes('After Tax'));
-    if (existingAfterTaxMedian) return;
-
-    const amountElement = document.querySelector('.percentiles_medianAmount__XO6Ww');
-    const labelElement = document.querySelector('.percentiles_percentileLabel__8qVrS');
-
-    if (amountElement && labelElement) {
-        // Create clones
-        const amountClone = amountElement.cloneNode(true);
-        const labelClone = labelElement.cloneNode(true);
-
-        // Get location info
-        const location = getLocationFromURL();
-        
-        // Update label text based on whether we have location info
-        if (location) {
-            labelClone.textContent = `After Tax (${location.city})`;
-        } else {
-            const stateAbbr = taxSettings.state;
-            const filingStatusAbbr = taxSettings.filingStatus === 'Married Filing Jointly' ? 'Joint' : 
-                                   taxSettings.filingStatus === 'Head of Household' ? 'Head' : 'Single';
-            labelClone.textContent = `After Tax (${stateAbbr}, ${filingStatusAbbr})`;
-        }
-
-        // Calculate after-tax amount
-        const totalSalary = parseSalaryString(amountElement.textContent);
-        if (totalSalary > 0) {
-            // Use location-based calculation if available, otherwise use settings
-            const totalTax = location ? calculateTotalTax(totalSalary, location) : calculateTotalTax(totalSalary);
-            const afterTaxSalary = totalSalary - totalTax;
-            amountClone.textContent = formatExactSalary(afterTaxSalary);
-        }
-
-        // Insert clones into DOM
-        labelElement.parentNode.insertBefore(amountClone, labelElement.nextSibling);
-        amountClone.parentNode.insertBefore(labelClone, amountClone.nextSibling);
-
-        // Listen for settings changes
-        chrome.storage.onChanged.addListener((changes, namespace) => {
-            if (namespace === 'sync' && changes.taxSettings) {
-                const newSettings = changes.taxSettings.newValue;
-                const newLocation = getLocationFromURL();
-                
-                // Update label
-                if (newLocation) {
-                    labelClone.textContent = `After Tax (${newLocation.city})`;
-                } else {
-                    const stateAbbr = newSettings.state;
-                    const filingStatusAbbr = newSettings.filingStatus === 'Married Filing Jointly' ? 'Joint' : 
-                                           newSettings.filingStatus === 'Head of Household' ? 'Head' : 'Single';
-                    labelClone.textContent = `After Tax (${stateAbbr}, ${filingStatusAbbr})`;
-                }
-                
-                // Update amount
-                if (totalSalary > 0) {
-                    const newTotalTax = newLocation ? calculateTotalTax(totalSalary, newLocation) : calculateTotalTax(totalSalary);
-                    const newAfterTaxSalary = totalSalary - newTotalTax;
-                    amountClone.textContent = formatExactSalary(newAfterTaxSalary);
-                }
-            }
-        });
+  // Check if already added
+  const existingAfterTaxMedian = Array.from(
+    document.querySelectorAll(".percentiles_percentileLabel__8qVrS")
+  ).find((el) => el.textContent.includes("After Tax"));
+  if (existingAfterTaxMedian) return;
+  const amountElement = document.querySelector(
+    ".percentiles_medianAmount__XO6Ww"
+  );
+  const labelElement = document.querySelector(
+    ".percentiles_percentileLabel__8qVrS"
+  );
+  if (amountElement && labelElement) {
+    // Create clones
+    const amountClone = amountElement.cloneNode(true);
+    const labelClone = labelElement.cloneNode(true);
+    // Get location info
+    const location = getLocationFromURL();
+    // Update label text based on whether we have location info
+    if (location) {
+      labelClone.textContent = `After Tax (${location.city})`;
+    } else {
+      const stateAbbr = taxSettings.state;
+      const filingStatusAbbr =
+        taxSettings.filingStatus === "Married Filing Jointly"
+          ? "Joint"
+          : taxSettings.filingStatus === "Head of Household"
+          ? "Head"
+          : "Single";
+      labelClone.textContent = `After Tax (${stateAbbr}, ${filingStatusAbbr})`;
     }
+    // Calculate after-tax amount
+    const totalSalary = parseSalaryString(amountElement.textContent);
+    if (totalSalary > 0) {
+      // Use location-based calculation if available, otherwise use settings
+      const totalTax = location
+        ? calculateTotalTax(totalSalary, location)
+        : calculateTotalTax(totalSalary);
+      const afterTaxSalary = totalSalary - totalTax;
+      amountClone.textContent = formatExactSalary(afterTaxSalary);
+    }
+    // Insert clones into DOM
+    labelElement.parentNode.insertBefore(amountClone, labelElement.nextSibling);
+    amountClone.parentNode.insertBefore(labelClone, amountClone.nextSibling);
+    // Listen for settings changes
+    chrome.storage.onChanged.addListener((changes, namespace) => {
+      if (namespace === "sync" && changes.taxSettings) {
+        const newSettings = changes.taxSettings.newValue;
+        const newLocation = getLocationFromURL();
+        // Update label
+        if (newLocation) {
+          labelClone.textContent = `After Tax (${newLocation.city})`;
+        } else {
+          const stateAbbr = newSettings.state;
+          const filingStatusAbbr =
+            newSettings.filingStatus === "Married Filing Jointly"
+              ? "Joint"
+              : newSettings.filingStatus === "Head of Household"
+              ? "Head"
+              : "Single";
+          labelClone.textContent = `After Tax (${stateAbbr}, ${filingStatusAbbr})`;
+        }
+        // Update amount
+        if (totalSalary > 0) {
+          const newTotalTax = newLocation
+            ? calculateTotalTax(totalSalary, newLocation)
+            : calculateTotalTax(totalSalary);
+          const newAfterTaxSalary = totalSalary - newTotalTax;
+          amountClone.textContent = formatExactSalary(newAfterTaxSalary);
+        }
+      }
+    });
+  }
 }
-
 // Function to duplicate percentile elements with the same pattern
 function duplicatePercentileElements() {
-    // Check if already added
-    const existingAfterTaxPercentile = Array.from(document.querySelectorAll('.percentiles_percentileLabel__8qVrS'))
-        .find(el => el.textContent.includes('After Tax 25th%'));
-    if (existingAfterTaxPercentile) return;
-
-    const barElement = document.querySelector('.percentiles_percentileBar___ll7Y');
-    const amountElement = document.querySelector('.percentiles_percentileBar___ll7Y + .css-es1xmb');
-    const labelElement = document.querySelector('.percentiles_percentileBar___ll7Y + .css-es1xmb + .percentiles_percentileLabel__8qVrS');
-
-    if (barElement && amountElement && labelElement) {
-        // Create clones
-        const barClone = barElement.cloneNode(true);
-        const amountClone = amountElement.cloneNode(true);
-        const labelClone = labelElement.cloneNode(true);
-
-        // Always show the label as "After Tax 25th%"
-        labelClone.textContent = 'After Tax 25th%';
-
-        // Calculate after-tax amount using location or settings
-        const totalSalary = parseSalaryString(amountElement.textContent);
-        if (totalSalary > 0) {
-            const location = getLocationFromURL();
-            const totalTax = location ? calculateTotalTax(totalSalary, location) : calculateTotalTax(totalSalary);
-            const afterTaxSalary = totalSalary - totalTax;
-            amountClone.textContent = formatExactSalary(afterTaxSalary);
-
-            // Adjust bar width
-            const ratio = afterTaxSalary / totalSalary;
-            const originalWidth = window.getComputedStyle(barElement).width;
-            barClone.style.width = `${parseFloat(originalWidth) * ratio}px`;
-        }
-
-        // Insert clones into DOM
-        const container = barElement.parentNode;
-        container.insertBefore(barClone, labelElement.nextSibling);
-        container.insertBefore(amountClone, barClone.nextSibling);
-        container.insertBefore(labelClone, amountClone.nextSibling);
-
-        // Listen for settings changes
-        chrome.storage.onChanged.addListener((changes, namespace) => {
-            if (namespace === 'sync' && changes.taxSettings) {
-                const newLocation = getLocationFromURL();
-                
-                // Update amount and bar
-                if (totalSalary > 0) {
-                    const newTotalTax = newLocation ? calculateTotalTax(totalSalary, newLocation) : calculateTotalTax(totalSalary);
-                    const newAfterTaxSalary = totalSalary - newTotalTax;
-                    amountClone.textContent = formatExactSalary(newAfterTaxSalary);
-                    
-                    // Update bar width
-                    const ratio = newAfterTaxSalary / totalSalary;
-                    const originalWidth = window.getComputedStyle(barElement).width;
-                    barClone.style.width = `${parseFloat(originalWidth) * ratio}px`;
-                }
-            }
-        });
+  // Check if already added
+  const existingAfterTaxPercentile = Array.from(
+    document.querySelectorAll(".percentiles_percentileLabel__8qVrS")
+  ).find((el) => el.textContent.includes("After Tax 25th%"));
+  if (existingAfterTaxPercentile) return;
+  const barElement = document.querySelector(
+    ".percentiles_percentileBar___ll7Y"
+  );
+  const amountElement = document.querySelector(
+    ".percentiles_percentileBar___ll7Y + .css-es1xmb"
+  );
+  const labelElement = document.querySelector(
+    ".percentiles_percentileBar___ll7Y + .css-es1xmb + .percentiles_percentileLabel__8qVrS"
+  );
+  if (barElement && amountElement && labelElement) {
+    // Create clones
+    const barClone = barElement.cloneNode(true);
+    const amountClone = amountElement.cloneNode(true);
+    const labelClone = labelElement.cloneNode(true);
+    // Always show the label as "After Tax 25th%"
+    labelClone.textContent = "After Tax 25th%";
+    // Calculate after-tax amount using location or settings
+    const totalSalary = parseSalaryString(amountElement.textContent);
+    if (totalSalary > 0) {
+      const location = getLocationFromURL();
+      const totalTax = location
+        ? calculateTotalTax(totalSalary, location)
+        : calculateTotalTax(totalSalary);
+      const afterTaxSalary = totalSalary - totalTax;
+      amountClone.textContent = formatExactSalary(afterTaxSalary);
+      // Adjust bar width
+      const ratio = afterTaxSalary / totalSalary;
+      const originalWidth = window.getComputedStyle(barElement).width;
+      barClone.style.width = `${parseFloat(originalWidth) * ratio}px`;
     }
+    // Insert clones into DOM
+    const container = barElement.parentNode;
+    container.insertBefore(barClone, labelElement.nextSibling);
+    container.insertBefore(amountClone, barClone.nextSibling);
+    container.insertBefore(labelClone, amountClone.nextSibling);
+    // Listen for settings changes
+    chrome.storage.onChanged.addListener((changes, namespace) => {
+      if (namespace === "sync" && changes.taxSettings) {
+        const newLocation = getLocationFromURL();
+        // Update amount and bar
+        if (totalSalary > 0) {
+          const newTotalTax = newLocation
+            ? calculateTotalTax(totalSalary, newLocation)
+            : calculateTotalTax(totalSalary);
+          const newAfterTaxSalary = totalSalary - newTotalTax;
+          amountClone.textContent = formatExactSalary(newAfterTaxSalary);
+          // Update bar width
+          const ratio = newAfterTaxSalary / totalSalary;
+          const originalWidth = window.getComputedStyle(barElement).width;
+          barClone.style.width = `${parseFloat(originalWidth) * ratio}px`;
+        }
+      }
+    });
+  }
 }
-
 // Update 75th and 90th percentile functions similarly
 function duplicate75thPercentileElements() {
-    const existingAfterTax75thPercentile = Array.from(document.querySelectorAll('.percentiles_percentileLabel__8qVrS'))
-        .find(el => el.textContent.includes('After Tax 75th%'));
-    if (existingAfterTax75thPercentile) return;
-
-    const allBars = document.querySelectorAll('.percentiles_percentileBar___ll7Y');
-    const barElement = Array.from(allBars).find((bar, index) => {
-        const nextLabel = bar.parentNode.querySelector('.percentiles_percentileLabel__8qVrS');
-        return nextLabel && nextLabel.textContent.includes('75th%');
-    });
-
-    if (!barElement) return;
-
-    const container = barElement.parentNode;
-    const amountElement = container.querySelector('.css-es1xmb');
-    const labelElement = container.querySelector('.percentiles_percentileLabel__8qVrS');
-
-    if (barElement && amountElement && labelElement) {
-        const barClone = barElement.cloneNode(true);
-        const amountClone = amountElement.cloneNode(true);
-        const labelClone = labelElement.cloneNode(true);
-
-        labelClone.textContent = 'After Tax 75th%';
-
-        const totalSalary = parseSalaryString(amountElement.textContent);
-        if (totalSalary > 0) {
-            const location = getLocationFromURL();
-            const totalTax = location ? calculateTotalTax(totalSalary, location) : calculateTotalTax(totalSalary);
-            const afterTaxSalary = totalSalary - totalTax;
-            amountClone.textContent = formatExactSalary(afterTaxSalary);
-
-            const ratio = afterTaxSalary / totalSalary;
-            const originalWidth = window.getComputedStyle(barElement).width;
-            barClone.style.width = `${parseFloat(originalWidth) * ratio}px`;
-        }
-
-        container.insertBefore(barClone, labelElement.nextSibling);
-        container.insertBefore(amountClone, barClone.nextSibling);
-        container.insertBefore(labelClone, amountClone.nextSibling);
-
-        chrome.storage.onChanged.addListener((changes, namespace) => {
-            if (namespace === 'sync' && changes.taxSettings) {
-                const newLocation = getLocationFromURL();
-                
-                if (totalSalary > 0) {
-                    const newTotalTax = newLocation ? calculateTotalTax(totalSalary, newLocation) : calculateTotalTax(totalSalary);
-                    const newAfterTaxSalary = totalSalary - newTotalTax;
-                    amountClone.textContent = formatExactSalary(newAfterTaxSalary);
-                    
-                    const ratio = newAfterTaxSalary / totalSalary;
-                    const originalWidth = window.getComputedStyle(barElement).width;
-                    barClone.style.width = `${parseFloat(originalWidth) * ratio}px`;
-                }
-            }
-        });
+  const existingAfterTax75thPercentile = Array.from(
+    document.querySelectorAll(".percentiles_percentileLabel__8qVrS")
+  ).find((el) => el.textContent.includes("After Tax 75th%"));
+  if (existingAfterTax75thPercentile) return;
+  const allBars = document.querySelectorAll(
+    ".percentiles_percentileBar___ll7Y"
+  );
+  const barElement = Array.from(allBars).find((bar, index) => {
+    const nextLabel = bar.parentNode.querySelector(
+      ".percentiles_percentileLabel__8qVrS"
+    );
+    return nextLabel && nextLabel.textContent.includes("75th%");
+  });
+  if (!barElement) return;
+  const container = barElement.parentNode;
+  const amountElement = container.querySelector(".css-es1xmb");
+  const labelElement = container.querySelector(
+    ".percentiles_percentileLabel__8qVrS"
+  );
+  if (barElement && amountElement && labelElement) {
+    const barClone = barElement.cloneNode(true);
+    const amountClone = amountElement.cloneNode(true);
+    const labelClone = labelElement.cloneNode(true);
+    const originalSalaryText = amountElement.textContent;
+    labelClone.textContent = "After Tax 75th%";
+    const totalSalary = parseSalaryString(amountElement.textContent);
+    if (totalSalary > 0) {
+      const location = getLocationFromURL();
+      const totalTax = location
+        ? calculateTotalTax(totalSalary, location)
+        : calculateTotalTax(totalSalary);
+      const afterTaxSalary = totalSalary - totalTax;
+      amountClone.textContent = formatExactSalary(
+        afterTaxSalary,
+        originalSalaryText
+      );
+      // Add currency mismatch warning if needed
+      addCurrencyMismatchWarningIfNeeded(amountClone, originalSalaryText);
+      const ratio = afterTaxSalary / totalSalary;
+      const originalWidth = window.getComputedStyle(barElement).width;
+      barClone.style.width = `${parseFloat(originalWidth) * ratio}px`;
     }
+    container.insertBefore(barClone, labelElement.nextSibling);
+    container.insertBefore(amountClone, barClone.nextSibling);
+    container.insertBefore(labelClone, amountClone.nextSibling);
+    chrome.storage.onChanged.addListener((changes, namespace) => {
+      if (namespace === "sync" && changes.taxSettings) {
+        const newLocation = getLocationFromURL();
+        if (totalSalary > 0) {
+          const newTotalTax = newLocation
+            ? calculateTotalTax(totalSalary, newLocation)
+            : calculateTotalTax(totalSalary);
+          const newAfterTaxSalary = totalSalary - newTotalTax;
+          // Remove any existing warning
+          amountClone.textContent = formatExactSalary(
+            newAfterTaxSalary,
+            originalSalaryText
+          );
+          // Check for currency mismatch
+          if (hasCurrencyMismatch(originalSalaryText)) {
+            const warningIcon = document.createElement("span");
+            warningIcon.textContent = " ⚠️";
+            warningIcon.title =
+              "Currency mismatch detected between salary and selected tax settings";
+            amountClone.appendChild(warningIcon);
+          }
+          const ratio = newAfterTaxSalary / totalSalary;
+          const originalWidth = window.getComputedStyle(barElement).width;
+          barClone.style.width = `${parseFloat(originalWidth) * ratio}px`;
+        }
+      }
+    });
+  }
 }
-
 function duplicate90thPercentileElements() {
-    const existingAfterTax90thPercentile = Array.from(document.querySelectorAll('.percentiles_percentileLabel__8qVrS'))
-        .find(el => el.textContent.includes('After Tax 90th%'));
-    if (existingAfterTax90thPercentile) return;
-
-    const allBars = document.querySelectorAll('.percentiles_percentileBar___ll7Y');
-    const barElement = Array.from(allBars).find((bar, index) => {
-        const nextLabel = bar.parentNode.querySelector('.percentiles_percentileLabel__8qVrS');
-        return nextLabel && nextLabel.textContent.includes('90th%');
-    });
-
-    if (!barElement) return;
-
-    const container = barElement.parentNode;
-    const amountElement = container.querySelector('.css-es1xmb');
-    const labelElement = container.querySelector('.percentiles_percentileLabel__8qVrS');
-
-    if (barElement && amountElement && labelElement) {
-        const barClone = barElement.cloneNode(true);
-        const amountClone = amountElement.cloneNode(true);
-        const labelClone = labelElement.cloneNode(true);
-
-        labelClone.textContent = 'After Tax 90th%';
-
-        const totalSalary = parseSalaryString(amountElement.textContent);
-        if (totalSalary > 0) {
-            const location = getLocationFromURL();
-            const totalTax = location ? calculateTotalTax(totalSalary, location) : calculateTotalTax(totalSalary);
-            const afterTaxSalary = totalSalary - totalTax;
-            amountClone.textContent = formatExactSalary(afterTaxSalary);
-
-            const ratio = afterTaxSalary / totalSalary;
-            const originalWidth = window.getComputedStyle(barElement).width;
-            barClone.style.width = `${parseFloat(originalWidth) * ratio}px`;
-        }
-
-        container.insertBefore(barClone, labelElement.nextSibling);
-        container.insertBefore(amountClone, barClone.nextSibling);
-        container.insertBefore(labelClone, amountClone.nextSibling);
-
-        chrome.storage.onChanged.addListener((changes, namespace) => {
-            if (namespace === 'sync' && changes.taxSettings) {
-                const newLocation = getLocationFromURL();
-                
-                if (totalSalary > 0) {
-                    const newTotalTax = newLocation ? calculateTotalTax(totalSalary, newLocation) : calculateTotalTax(totalSalary);
-                    const newAfterTaxSalary = totalSalary - newTotalTax;
-                    amountClone.textContent = formatExactSalary(newAfterTaxSalary);
-                    
-                    const ratio = newAfterTaxSalary / totalSalary;
-                    const originalWidth = window.getComputedStyle(barElement).width;
-                    barClone.style.width = `${parseFloat(originalWidth) * ratio}px`;
-                }
-            }
-        });
+  const existingAfterTax90thPercentile = Array.from(
+    document.querySelectorAll(".percentiles_percentileLabel__8qVrS")
+  ).find((el) => el.textContent.includes("After Tax 90th%"));
+  if (existingAfterTax90thPercentile) return;
+  const allBars = document.querySelectorAll(
+    ".percentiles_percentileBar___ll7Y"
+  );
+  const barElement = Array.from(allBars).find((bar, index) => {
+    const nextLabel = bar.parentNode.querySelector(
+      ".percentiles_percentileLabel__8qVrS"
+    );
+    return nextLabel && nextLabel.textContent.includes("90th%");
+  });
+  if (!barElement) return;
+  const container = barElement.parentNode;
+  const amountElement = container.querySelector(".css-es1xmb");
+  const labelElement = container.querySelector(
+    ".percentiles_percentileLabel__8qVrS"
+  );
+  if (barElement && amountElement && labelElement) {
+    const barClone = barElement.cloneNode(true);
+    const amountClone = amountElement.cloneNode(true);
+    const labelClone = labelElement.cloneNode(true);
+    const originalSalaryText = amountElement.textContent;
+    labelClone.textContent = "After Tax 90th%";
+    const totalSalary = parseSalaryString(amountElement.textContent);
+    if (totalSalary > 0) {
+      const location = getLocationFromURL();
+      const totalTax = location
+        ? calculateTotalTax(totalSalary, location)
+        : calculateTotalTax(totalSalary);
+      const afterTaxSalary = totalSalary - totalTax;
+      amountClone.textContent = formatExactSalary(
+        afterTaxSalary,
+        originalSalaryText
+      );
+      // Check for currency mismatch
+      if (hasCurrencyMismatch(originalSalaryText)) {
+        const warningIcon = document.createElement("span");
+        warningIcon.textContent = " ⚠️";
+        warningIcon.title =
+          "Currency mismatch detected between salary and selected tax settings";
+        amountClone.appendChild(warningIcon);
+      }
+      const ratio = afterTaxSalary / totalSalary;
+      const originalWidth = window.getComputedStyle(barElement).width;
+      barClone.style.width = `${parseFloat(originalWidth) * ratio}px`;
     }
+    container.insertBefore(barClone, labelElement.nextSibling);
+    container.insertBefore(amountClone, barClone.nextSibling);
+    container.insertBefore(labelClone, amountClone.nextSibling);
+    chrome.storage.onChanged.addListener((changes, namespace) => {
+      if (namespace === "sync" && changes.taxSettings) {
+        const newLocation = getLocationFromURL();
+        if (totalSalary > 0) {
+          const newTotalTax = newLocation
+            ? calculateTotalTax(totalSalary, newLocation)
+            : calculateTotalTax(totalSalary);
+          const newAfterTaxSalary = totalSalary - newTotalTax;
+          // Remove any existing warning
+          amountClone.textContent = formatExactSalary(
+            newAfterTaxSalary,
+            originalSalaryText
+          );
+          // Check for currency mismatch
+          if (hasCurrencyMismatch(originalSalaryText)) {
+            const warningIcon = document.createElement("span");
+            warningIcon.textContent = " ⚠️";
+            warningIcon.title =
+              "Currency mismatch detected between salary and selected tax settings";
+            amountClone.appendChild(warningIcon);
+          }
+          const ratio = newAfterTaxSalary / totalSalary;
+          const originalWidth = window.getComputedStyle(barElement).width;
+          barClone.style.width = `${parseFloat(originalWidth) * ratio}px`;
+        }
+      }
+    });
+  }
 }
-
 // Modify medianObserver to check for all percentile elements
 const medianObserver = new MutationObserver((mutations) => {
-    for (const mutation of mutations) {
-        if (mutation.type === 'childList') {
-            const medianAmount = document.querySelector('.percentiles_medianAmount__XO6Ww');
-            const medianLabel = document.querySelector('.percentiles_percentileLabel__8qVrS');
-            
-            if (medianAmount && medianLabel) {
-                chrome.storage.sync.get(['taxSettings'], function(result) {
-                    if (result.taxSettings) {
-                        taxSettings = result.taxSettings;
-                        duplicateMedianElements();
-                    }
-                });
-            }
-
-            const allBars = document.querySelectorAll('.percentiles_percentileBar___ll7Y');
-            const labels = document.querySelectorAll('.percentiles_percentileLabel__8qVrS');
-            
-            const has25thPercentile = Array.from(labels).some(label => label.textContent.includes('25th%'));
-            const has75thPercentile = Array.from(labels).some(label => label.textContent.includes('75th%'));
-            const has90thPercentile = Array.from(labels).some(label => label.textContent.includes('90th%'));
-            
-            if (has25thPercentile || has75thPercentile || has90thPercentile) {
-                chrome.storage.sync.get(['taxSettings'], function(result) {
-                    if (result.taxSettings) {
-                        taxSettings = result.taxSettings;
-                        if (has25thPercentile) duplicatePercentileElements();
-                        if (has75thPercentile) duplicate75thPercentileElements();
-                        if (has90thPercentile) duplicate90thPercentileElements();
-                    }
-                });
-            }
-        }
+  for (const mutation of mutations) {
+    if (mutation.type === "childList") {
+      const medianAmount = document.querySelector(
+        ".percentiles_medianAmount__XO6Ww"
+      );
+      const medianLabel = document.querySelector(
+        ".percentiles_percentileLabel__8qVrS"
+      );
+      if (medianAmount && medianLabel) {
+        chrome.storage.sync.get(["taxSettings"], function (result) {
+          if (result.taxSettings) {
+            taxSettings = result.taxSettings;
+            duplicateMedianElements();
+          }
+        });
+      }
+      const allBars = document.querySelectorAll(
+        ".percentiles_percentileBar___ll7Y"
+      );
+      const labels = document.querySelectorAll(
+        ".percentiles_percentileLabel__8qVrS"
+      );
+      const has25thPercentile = Array.from(labels).some((label) =>
+        label.textContent.includes("25th%")
+      );
+      const has75thPercentile = Array.from(labels).some((label) =>
+        label.textContent.includes("75th%")
+      );
+      const has90thPercentile = Array.from(labels).some((label) =>
+        label.textContent.includes("90th%")
+      );
+      if (has25thPercentile || has75thPercentile || has90thPercentile) {
+        chrome.storage.sync.get(["taxSettings"], function (result) {
+          if (result.taxSettings) {
+            taxSettings = result.taxSettings;
+            if (has25thPercentile) duplicatePercentileElements();
+            if (has75thPercentile) duplicate75thPercentileElements();
+            if (has90thPercentile) duplicate90thPercentileElements();
+          }
+        });
+      }
     }
+  }
 });
-
 // Start observing for median and percentile elements
 medianObserver.observe(document.body, {
-    childList: true,
-    subtree: true
+  childList: true,
+  subtree: true,
 });
-
 // Enhanced URL change detection
 let lastUrl = location.href;
 let isReloading = false;
 let reloadTimeout = null;
-
 // Function to safely reload the page
 function safeReload() {
   if (isReloading) return;
   isReloading = true;
-  
   // Clear any pending reload
   if (reloadTimeout) clearTimeout(reloadTimeout);
-  
-  console.log('Taxes.fyi: URL changed from', lastUrl, 'to', location.href);
+  console.log("Taxes.fyi: URL changed from", lastUrl, "to", location.href);
   lastUrl = location.href;
-  
   reloadTimeout = setTimeout(() => {
-    console.log('Taxes.fyi: Reloading page');
+    console.log("Taxes.fyi: Reloading page");
     window.location.reload();
   }, 100);
 }
-
 // Monitor URL changes using multiple methods
 function checkUrlChange() {
   if (location.href !== lastUrl) {
     safeReload();
   }
 }
-
 // Check URL changes frequently
 setInterval(checkUrlChange, 50);
-
 // Listen for navigation events
-window.addEventListener('popstate', safeReload);
-window.addEventListener('hashchange', safeReload);
-
+window.addEventListener("popstate", safeReload);
+window.addEventListener("hashchange", safeReload);
 // Listen for React router changes
-document.addEventListener('click', function(e) {
-  const isNavElement = e.target.closest('a[href], button[role="link"], [data-testid="link"], .css-4g6ai3');
+document.addEventListener("click", function (e) {
+  const isNavElement = e.target.closest(
+    'a[href], button[role="link"], [data-testid="link"], .css-4g6ai3'
+  );
   if (isNavElement) {
     setTimeout(checkUrlChange, 50);
   }
 });
-
 // Override history methods
 const originalPushState = history.pushState;
 const originalReplaceState = history.replaceState;
-
-history.pushState = function() {
+history.pushState = function () {
   originalPushState.apply(this, arguments);
   setTimeout(checkUrlChange, 50);
 };
-
-history.replaceState = function() {
+history.replaceState = function () {
   originalReplaceState.apply(this, arguments);
   setTimeout(checkUrlChange, 50);
 };
-
 // Monitor DOM changes that might indicate navigation
 const navigationObserver = new MutationObserver(() => {
   if (location.href !== lastUrl) {
     safeReload();
   }
 });
-
 navigationObserver.observe(document.body, {
   childList: true,
   subtree: true,
   attributes: true,
-  attributeFilter: ['href', 'pathname']
+  attributeFilter: ["href", "pathname"],
 });
